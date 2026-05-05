@@ -232,11 +232,13 @@ static void build_page_tables(void) {
         for (uint32_t j = 0; j < PT_ENTRIES; j++) {
             uint64_t phys = (uint64_t)i * PT_ENTRIES * PAGE_SIZE
                           + (uint64_t)j * PAGE_SIZE;
-            /* Mark kernel pages as supervisor-only */
-            uint64_t flags = PTE_PRESENT | PTE_WRITABLE;
+            uint64_t flags = PTE_PRESENT | PTE_WRITABLE | PTE_USER;  /* TEMP: Make all pages user accessible for debugging */
+            
+            /* Make kernel pages global */
             if (phys >= 0x200000) {  /* Above 2MB mark for kernel */
-                flags |= PTE_GLOBAL;  /* Global pages for kernel */
+                flags |= PTE_GLOBAL;
             }
+            
             pt[i][j] = phys | flags;
         }
     }
@@ -556,6 +558,24 @@ void mm_enable_paging(void) {
                      "movq %%rax, %%cr3" : : : "rax");
     
     print_str("MM: paging enabled\n", 0x0A);
+
+    /* Add debug information after enabling paging */
+    print_str("MM: paging enabled, CR3=0x", 0x0A);
+    print_hex((uintptr_t)pml4, 0x0A);
+    print_str("\n", 0x0A);
+
+    /* Check user program page mapping */
+    print_str("MM: Checking user program page at 0x400000\n", 0x0E);
+    uint64_t entry = pt[2][0];  /* Page table entry for 0x400000 */
+    print_str("  Page table entry: 0x", 0x0E);
+    print_hex(entry, 0x0E);
+    print_str("\n  Present: ", 0x0E);
+    print_str((entry & PTE_PRESENT) ? "Yes" : "No", 0x0E);
+    print_str(", Writable: ", 0x0E);
+    print_str((entry & PTE_WRITABLE) ? "Yes" : "No", 0x0E);
+    print_str(", User: ", 0x0E);
+    print_str((entry & PTE_USER) ? "Yes" : "No", 0x0E);
+    print_str("\n", 0x0E);
 }
 
 /* ------------------------------------------------------------------ */

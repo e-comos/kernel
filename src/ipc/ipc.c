@@ -1,5 +1,5 @@
 #include <kernel/ipc.h>
-#include <string.h>
+#include <klibc/string.h>
 
 // Internal IPC functions
 int ipc_send(thread_id target, ipc_message_t *msg) {

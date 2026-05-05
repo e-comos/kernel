@@ -106,26 +106,28 @@ my $config = {
     sources => {
         # Kernel C source files - core kernel components
         kernel => [
-            'src/kernel/main.c',         # Kernel entry point and main loop
-            'src/kernel/syscall.c',      # System call implementation
-            'src/kernel/debug.c',        # Debug and diagnostic utilities
-            'src/ipc/ipc.c',             # Inter-process communication
-            'src/mm/mm.c',               # Memory management subsystem
-            'src/sched/sched.c',         # Task scheduler implementation
-            'src/printkit/print.c',      # Printing and output utilities
-            'src/time/time.c',           # Time management and timers
-	    'src/kernel/proc.c',	 # System process management
-            'arch/x86_64/cpu/gdt.c',     # Global Descriptor Table management
-            'arch/x86_64/interrupts/idt.c', # Interrupt Descriptor Table
-            'arch/x86_64/interrupts/isr.c', # ISR handler implementations
-            'arch/x86_64/interrupts/irq.c', # IRQ handler implementations
+            'src/kernel/main.c',
+            'src/kernel/syscall.c',
+            'src/kernel/debug.c',
+            'src/ipc/ipc.c',
+            'src/mm/mm.c',
+            'src/sched/sched.c',
+            'src/printkit/print.c',
+            'src/time/time.c',
+            'src/user_space/user_mode.c',
+            'klibc/libstring/string.c',
+            'arch/x86_64/cpu/gdt.c',
+            'arch/x86_64/interrupts/idt.c',
+            'arch/x86_64/interrupts/isr.c',
+            'arch/x86_64/interrupts/irq.c',
 	],
         
         # Assembly source files for low-level operations
         asm => [
-            'arch/x86_64/cpu/context_switch.s',  # Context switching assembly
-	    'boot/multiboot2_start.s',           # New GRUB start up
-	    'boot/long_mode_switch.s',           # Long mode change
+            'arch/x86_64/cpu/context_switch.s',
+            'boot/multiboot2_start.s',
+            'boot/long_mode_switch.s',
+            'src/arch/x86_64/switch_to_user_mode.S',
         ],
         
         # Additional assembly objects referenced in build
@@ -283,7 +285,8 @@ sub compile_asm_file {
     
     # Transform source path to object path:
     # arch/x86_64/cpu/context_switch.s -> build/obj/x86_64/cpu/context_switch.o
-    my $obj_file = $source_file =~ s/\.s$/.o/r =~ s/^arch/$config->{obj_dir}/r;
+    # src/arch/x86_64/switch_to_user_mode.S -> build/obj/arch/x86_64/switch_to_user_mode.o
+    my $obj_file = $source_file =~ s/\.[sS]$/.o/r =~ s/^arch/$config->{obj_dir}/r =~ s/^src/$config->{obj_dir}/r;
     
     ensure_dir(dirname($obj_file));
     
@@ -533,7 +536,29 @@ sub build_all {
         }
     }
     
-    # Phase 4: Link all object files into kernel executable
+    # Phase 4: Embed init.bin as a linkable object
+    ensure_dir($config->{obj_dir});
+    my $objcopy = find_tool('objcopy', 1);
+    for my $payload (['payload/init.bin', "$config->{obj_dir}/init_bin.o"],
+                     ['payload/ebts.bin', "$config->{obj_dir}/ebts_bin.o"]) {
+        my ($bin, $obj) = @$payload;
+        if (-f $bin && -s $bin) {
+            my $embed_cmd = "$objcopy -I binary -O elf64-x86-64 -B i386:x86-64 $bin $obj";
+            my $embed = execute_command($embed_cmd, "Embedding $bin");
+            print_table_row("$bin -> $obj", $embed_cmd, $embed->{time},
+                            $embed->{success} ? '✓ SUCCESS' : '✗ FAILED');
+            if ($embed->{success}) {
+                push @obj_files, $obj;
+            } else {
+                print "ERROR OUTPUT:\n" . $embed->{output} . "\n";
+                $all_success = 0;
+            }
+        } else {
+            print "WARNING: $bin not found or empty — skipping\n";
+        }
+    }
+
+    # Phase 5: Link all object files into kernel executable
     if ($all_success && @obj_files) {
         my $result = link_kernel(@obj_files);
         $all_success &&= $result->{success};
@@ -633,6 +658,47 @@ sub build_image {
     }
 }
 
+# Build a bootable GRUB2 ISO image
+sub build_iso {
+    my $start_time = [gettimeofday];
+
+    print "=" x 60 . "\n";
+    print "Creating GRUB2 ISO\n";
+    print "=" x 60 . "\n\n";
+
+    my $kernel_elf = $config->{output}{kernel_elf};
+    if (!-f $kernel_elf) {
+        print "Kernel not found. Building kernel first...\n";
+        if (!build_all()) {
+            print "ERROR: Cannot build kernel. Aborting ISO creation.\n";
+            return 0;
+        }
+    }
+
+    # Copy fresh kernel.elf into iso tree
+    File::Copy::copy($kernel_elf, 'iso/boot/kernel.elf')
+        or die "Cannot copy $kernel_elf to iso/boot/kernel.elf: $!\n";
+
+    my $iso_file = 'ecomos.iso';
+    my $cmd = "grub2-mkrescue -o $iso_file iso";
+    my $result = execute_command($cmd, "Creating GRUB2 ISO");
+
+    print_table_header();
+    print_table_row('ecomos.iso', $cmd, $result->{time},
+                    $result->{success} ? '✓ SUCCESS' : '✗ FAILED');
+
+    if ($result->{success}) {
+        my $size = -s $iso_file;
+        print "✓ ISO created: $iso_file ($size bytes)\n";
+    } else {
+        print "ERROR OUTPUT:\n" . $result->{output} . "\n";
+    }
+
+    my $total_time = tv_interval($start_time);
+    print "\nISO creation time: $total_time seconds\n";
+    return $result->{success};
+}
+
 # ===================== Main Entry Point =====================
 
 # Main dispatcher function - handles command-line arguments
@@ -659,6 +725,9 @@ sub main {
             }
         }
         return run_qemu($image_file);
+    }
+    elsif ($action eq 'iso') {
+        return build_iso();
     }
     elsif ($action eq 'help' || $action eq '--help' || $action eq '-h') {
         print_help();

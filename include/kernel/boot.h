@@ -83,4 +83,16 @@ typedef struct {
 extern uint8_t _kernelStart[];
 extern uint8_t _kernelEnd[];
 
+typedef struct {
+    uint64_t ebts_src;
+    uint64_t ebts_size;
+    uint32_t flags;
+    uint32_t _pad;
+} boot_info_t;
+
+#define BOOT_INFO_ADDR  0x600000ULL
+#define INIT_LOAD_ADDR  0x400000ULL
+#define EBTS_LOAD_ADDR  0x500000ULL
+#define INIT_STACK_TOP  0x7FFFF0ULL
+
 #endif

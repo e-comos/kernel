@@ -16,6 +16,7 @@
 #include <kernel/syscall.h>
 #include <kernel/printkit/print.h>
 #include <kernel/debug.h>
+#include <user_space/user_mode.h>
 
 extern void gdt_init(void);
 #ifndef ECLIB_OK
