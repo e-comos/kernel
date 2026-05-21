@@ -73,9 +73,6 @@ void kernel_main(void* boot_info) {
          * data races with IRQ handlers (F-09). */
         __asm__ volatile("cli");
 
-        ipc_message_t msg = {0};   /* zero-initialise to avoid garbage (F-11) */
-        if (ipc_receive_msg(&msg, 0) == ECLIB_OK)
-            ipc_send((thread_id)msg.target, &msg);
 
         syscall_irq_check_timeouts();
 
