@@ -20,8 +20,10 @@
 #define KERNEL_IPC_H
 
 #include <stdint.h>
+#include <kernel/internal/types.h>
 
 #define IPC_MAX_DATA_SIZE   4096
+#define IPC_MAX_QUEUE_SIZE  16
 
 #define ECLIB_OK                    0
 #define ECLIB_IPC_TIMEOUT          -1
@@ -29,7 +31,11 @@
 #define ECLIB_IPC_PERM_DENIED      -3
 #define ECLIB_IPC_BUFFER_OVERFLOW  -4
 
-typedef uint32_t thread_id;
+typedef enum {
+    IPC_MSG_REQUEST = 1,
+    IPC_MSG_RESPONSE = 2,
+    IPC_MSG_NOTIFICATION = 3,
+} ipc_msg_type_t;
 
 typedef struct ipc_message {
     uint32_t type;
@@ -41,9 +47,14 @@ typedef struct ipc_message {
     uint8_t  data[IPC_MAX_DATA_SIZE];
 } ipc_message_t;
 
+typedef uint32_t thread_id;
+
 /* Low-level kernel IPC */
 int ipc_send(thread_id target, ipc_message_t *msg);
 int ipc_receive(ipc_message_t *msg);
+
+/* IPC subsystem initialization */
+void ipc_init(void);
 
 /* Higher-level helpers */
 int ipc_receive_msg(ipc_message_t *msg, int timeout_ms);

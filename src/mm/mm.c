@@ -17,6 +17,15 @@
 #include <string.h>
 
 /* ------------------------------------------------------------------ */
+/* Page Fault Error Codes                                              */
+/* ------------------------------------------------------------------ */
+#define PF_PRESENT  (1u << 0)   /* Page is present */
+#define PF_WRITE    (1u << 1)   /* Write access */
+#define PF_USER     (1u << 2)   /* User mode */
+#define PF_RESERVED (1u << 3)   /* Reserved bit set */
+#define PF_INSTR    (1u << 4)   /* Instruction fetch */
+
+/* ------------------------------------------------------------------ */
 /* Constants                                                           */
 /* ------------------------------------------------------------------ */
 
@@ -62,10 +71,10 @@ static uintptr_t heap_end = 0;
 /* Each PT covers 512 × 4 KB = 2 MB.  We need 8 PTs for 16 MB. */
 #define NUM_PTS 8u
 
-static uint64_t pml4[PML4_ENTRIES]  __attribute__((aligned(PAGE_SIZE)));
-static uint64_t pdpt[PDPT_ENTRIES]  __attribute__((aligned(PAGE_SIZE)));
-static uint64_t pd[PD_ENTRIES]      __attribute__((aligned(PAGE_SIZE)));
-static uint64_t pt[NUM_PTS][PT_ENTRIES] __attribute__((aligned(PAGE_SIZE)));
+uint64_t pml4[PML4_ENTRIES]  __attribute__((aligned(PAGE_SIZE)));
+uint64_t pdpt[PDPT_ENTRIES]  __attribute__((aligned(PAGE_SIZE)));
+uint64_t pd[PD_ENTRIES]      __attribute__((aligned(PAGE_SIZE)));
+uint64_t pt[NUM_PTS][PT_ENTRIES] __attribute__((aligned(PAGE_SIZE)));
 
 /* ------------------------------------------------------------------ */
 /* Panic helper (no dependency on heap)                               */
@@ -91,6 +100,10 @@ static inline void bitmap_clear(uint32_t idx) {
 static inline int bitmap_test(uint32_t idx) {
     return (page_bitmap[idx >> 3] >> (idx & 7u)) & 1u;
 }
+
+/* Forward declarations for page fault handler functions */
+int handle_page_fault(uint64_t fault_addr, uint64_t error_code);
+void page_fault_handler(uint64_t error_code);
 
 /* ------------------------------------------------------------------ */
 /* Kernel heap management                                              */
@@ -219,14 +232,14 @@ static void build_page_tables(void) {
     }
     
     /* PML4[0] → pdpt */
-    pml4[0] = (uint64_t)(uintptr_t)pdpt | PTE_PRESENT | PTE_WRITABLE;
+    pml4[0] = (uint64_t)(uintptr_t)pdpt | PTE_PRESENT | PTE_WRITABLE | PTE_USER;
 
     /* PDPT[0] → pd */
-    pdpt[0] = (uint64_t)(uintptr_t)pd | PTE_PRESENT | PTE_WRITABLE;
+    pdpt[0] = (uint64_t)(uintptr_t)pd | PTE_PRESENT | PTE_WRITABLE | PTE_USER;
 
     /* PD[i] → pt[i]  (each covers 2 MB) */
     for (uint32_t i = 0; i < NUM_PTS; i++) {
-        pd[i] = (uint64_t)(uintptr_t)pt[i] | PTE_PRESENT | PTE_WRITABLE;
+        pd[i] = (uint64_t)(uintptr_t)pt[i] | PTE_PRESENT | PTE_WRITABLE | PTE_USER;
 
         /* Fill PT: identity-map 512 × 4 KB pages (0-16MB) */
         for (uint32_t j = 0; j < PT_ENTRIES; j++) {
@@ -405,6 +418,16 @@ find_first:
     if (free_count == 0)
         return MEMORY_ERROR_NOMEM;
 
+    /* Register page fault handler in IDT */
+    print_str("MM: Registering page fault handler...\n", 0x0A);
+    extern void idt_set_gate(uint8_t num, uint64_t base, uint16_t sel, uint8_t flags);
+    extern void page_fault_handler(uint64_t error_code);
+    uint64_t handler_addr = (uint64_t)(uintptr_t)page_fault_handler;
+    idt_set_gate(14, handler_addr, 0x08, 0x8E);  /* Gate 14 = Page Fault */
+    print_str("  Page fault handler registered at 0x", 0x0A);
+    print_hex(handler_addr, 0x0A);
+    print_str("\n", 0x0A);
+
     return MEMORY_SUCCESS;
 }
 
@@ -487,16 +510,29 @@ void mm_free_pages(void *pages, uint32_t count) {
 /* ------------------------------------------------------------------ */
 /* mm_map_page                                                         */
 /* ------------------------------------------------------------------ */
-int mm_map_page(uint32_t vaddr, uint32_t paddr, uint32_t flags) {
+int mm_map_page(uint64_t vaddr, uint32_t paddr, uint32_t flags) {
     if (!page_tables_ready)
         return -1;
 
-    uint32_t pd_idx  = (vaddr >> 21) & 0x1FFu; /* PD index (2 MB granule) */
-    uint32_t pt_idx  = (vaddr >> 12) & 0x1FFu; /* PT index */
+    uint32_t pd_idx  = (uint32_t)((vaddr >> 21) & 0x1FFu); /* PD index (2 MB granule) */
+    uint32_t pt_idx  = (uint32_t)((vaddr >> 12) & 0x1FFu); /* PT index */
 
     if (pd_idx >= NUM_PTS) {
         /* Need to expand page tables - for now, fail */
         return -1;
+    }
+
+    /* Check if page is already mapped and log if so */
+    if (pt[pd_idx][pt_idx] & PTE_PRESENT) {
+        uint32_t old_phys = (uint32_t)(pt[pd_idx][pt_idx] & ~0xFFFu);
+        print_str("  MM: WARNING: Page 0x", 0x0E);
+        print_hex(vaddr, 0x0E);
+        print_str(" already mapped to 0x", 0x0E);
+        print_hex(old_phys, 0x0E);
+        print_str(", remapping...\n", 0x0E);
+        
+        /* Flush TLB entry for old mapping */
+        __asm__ volatile("invlpg (%0)" : : "r"((uintptr_t)vaddr) : "memory");
     }
 
     uint64_t entry = (uint64_t)paddr | PTE_PRESENT;
@@ -519,11 +555,11 @@ int mm_map_page(uint32_t vaddr, uint32_t paddr, uint32_t flags) {
 /* ------------------------------------------------------------------ */
 /* mm_unmap_page                                                       */
 /* ------------------------------------------------------------------ */
-int mm_unmap_page(uint32_t vaddr) {
+int mm_unmap_page(uint64_t vaddr) {
     if (!page_tables_ready)
         return -1;
-    uint32_t pd_idx = (vaddr >> 21) & 0x1FFu;
-    uint32_t pt_idx = (vaddr >> 12) & 0x1FFu;
+    uint32_t pd_idx = (uint32_t)((vaddr >> 21) & 0x1FFu);
+    uint32_t pt_idx = (uint32_t)((vaddr >> 12) & 0x1FFu);
     if (pd_idx >= NUM_PTS)
         return -1;
     pt[pd_idx][pt_idx] = 0;
@@ -809,4 +845,123 @@ void mm_dump_stats(void) {
     print_str(" (", 0x0E);
     print_num((heap_end - HEAP_START_VIRT) / 1024, 0x0E);
     print_str(" KB)\n", 0x0E);
+}
+
+/* ------------------------------------------------------------------ */
+/* Check page mapping status (debug)                                   */
+/* ------------------------------------------------------------------ */
+void mm_check_page(uint64_t vaddr) {
+    uint32_t pd_idx = (uint32_t)((vaddr >> 21) & 0x1FFu);
+    uint32_t pt_idx = (uint32_t)((vaddr >> 12) & 0x1FFu);
+    
+    if (pd_idx >= NUM_PTS) {
+        print_str("MM: Invalid page table index for 0x", 0x0C);
+        print_hex(vaddr, 0x0C);
+        print_str("\n", 0x0C);
+        return;
+    }
+    
+    uint64_t entry = pt[pd_idx][pt_idx];
+    
+    print_str("MM: Page 0x", 0x0E);
+    print_hex(vaddr, 0x0E);
+    print_str(" (PT[", 0x0E);
+    print_num(pd_idx, 0x0E);
+    print_str("][", 0x0E);
+    print_num(pt_idx, 0x0E);
+    print_str("]): Entry=0x", 0x0E);
+    print_hex(entry, 0x0E);
+    
+    if (entry & PTE_PRESENT) {
+        print_str(" [P", 0x0A);
+        if (entry & PTE_WRITABLE) print_str("W", 0x0A);
+        if (entry & PTE_USER) print_str("U", 0x0A);
+        if (entry & PTE_GLOBAL) print_str("G", 0x0A);
+        print_str("] Phys=0x", 0x0A);
+        print_hex((uint32_t)(entry & ~0xFFFu), 0x0A);
+    } else {
+        print_str(" [NOT PRESENT]", 0x0C);
+    }
+    print_str("\n", 0x0E);
+}
+
+/* ------------------------------------------------------------------ */
+/* Dynamic page fault handler                                          */
+/* ------------------------------------------------------------------ */
+/*
+ * handle_page_fault - Handle a page fault by dynamically allocating a page
+ *
+ * This function is called from isr_handler AFTER the interrupt stub has
+ * saved all registers and switched to a known-good kernel stack.
+ * 
+ * Parameters:
+ *   fault_addr - Virtual address that caused the fault (from CR2)
+ *   error_code - Page fault error code (P, W/R, U/S, RSV, I/D bits)
+ *
+ * Return:
+ *   1 if page fault was handled (map a new page)
+ *   0 if unhandled (should halt)
+ *
+ * IMPORTANT: This function must NOT be called directly from an ISR stub!
+ * The ISR stub must save all registers first, then call isr_handler,
+ * which then calls this function safely.
+ */
+int handle_page_fault(uint64_t fault_addr, uint64_t error_code) {
+    /* Calculate page boundary */
+    uint64_t page_start = fault_addr & ~0xFFFULL;
+
+    /* Check for null pointer access */
+    if (fault_addr < 0x1000) {
+        return 0;  /* Null pointer - don't handle */
+    }
+
+    /* Check if address is in valid user range (below kernel space)
+     * In this kernel, user space is 0x1000 to ~0x7FFFFFFFFFFF
+     * We only handle faults in low memory for now (below 16 MB)
+     */
+    if (page_start >= 0x1000000ULL) {
+        return 0;  /* Address too high - don't handle */
+    }
+
+    /* Allocate a physical page for this virtual address */
+    void *phys_page = mm_alloc_page();
+    if (!phys_page) {
+        return 0;  /* Out of memory */
+    }
+
+    /* Zero the page (security - don't leak kernel data to user) */
+    uint8_t *p = (uint8_t *)phys_page;
+    for (uint32_t i = 0; i < PAGE_SIZE; i++) {
+        p[i] = 0;
+    }
+
+    /* Determine page flags based on error code */
+    uint32_t map_flags = MM_FLAG_READ | MM_FLAG_USER;
+    if (error_code & 0x02) {  /* Write access? */
+        map_flags |= MM_FLAG_WRITE;
+    }
+
+    /* Map the page */
+    int ret = mm_map_page(page_start, (uint32_t)(uintptr_t)phys_page, map_flags);
+    if (ret != 0) {
+        mm_free_page(phys_page);
+        return 0;  /* Mapping failed */
+    }
+
+    /* Page successfully mapped - return 1 to continue execution */
+    return 1;
+}
+
+/*
+ * page_fault_handler - NOT USED
+ * 
+ * The actual page fault handling is done in handle_page_fault(),
+ * which is called from isr_handler(). This function is kept only
+ * for ABI compatibility.
+ */
+void page_fault_handler(uint64_t error_code) {
+    (void)error_code;
+    /* Should never be called - isr_handler handles page faults directly */
+    __asm__ volatile("cli; hlt");
+    for (;;) __asm__ volatile("hlt");
 }

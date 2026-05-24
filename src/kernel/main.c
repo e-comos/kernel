@@ -17,12 +17,14 @@
 #include <kernel/printkit/print.h>
 #include <kernel/debug.h>
 #include <user_space/user_mode.h>
+#include <kernel/early_init.h>
 
 extern void gdt_init(void);
+extern void enable_syscall_mechanism(void);  /* SYSCALL/SYSRET support */
 #ifndef ECLIB_OK
 #define ECLIB_OK 0
 #endif
-void kernel_main(void* boot_info) { 
+void kernel_main(void* boot_info) {
     /* Interrupts are disabled on entry from _start */
 
     clear_screen(0x1F);
@@ -32,6 +34,9 @@ void kernel_main(void* boot_info) {
     /* Phase 1: GDT + TSS — must be first; fixes segment registers */
     print_str("GDT + TSS...\n", 0x1F);
     gdt_init();
+
+    /* Enable SYSCALL/SYSRET mechanism after GDT is set up */
+    enable_syscall_mechanism();
 
     /* Phase 2: Memory — must be before any mmAllocPage call */
     print_str("Memory subsystem...\n", 0x1F);
@@ -49,8 +54,10 @@ void kernel_main(void* boot_info) {
 
     /* Phase 4: IPC + syscall IRQ subsystem */
     print_str("IPC + syscall...\n", 0x1F);
+    ipc_init();
+    enable_sse();
     syscall_irq_init();
-
+    
     /* Phase 5: Create init service thread */
     print_str("Creating init service...\n", 0x1F);
     int result = load_init_service_to_user_mode();
@@ -73,9 +80,8 @@ void kernel_main(void* boot_info) {
          * Disable interrupts around bitmap/queue access to prevent
          * data races with IRQ handlers (F-09). */
         __asm__ volatile("cli");
-
-        ipc_message_t msg = {0};   /* zero-initialise to avoid garbage (F-11) */
-        if (ipc_receive_msg(&msg, 0) == ECLIB_OK)
+        ipc_message_t msg = {0}; /* zero-initialise to avoid garbage (F-11) */
+        if (ipc_receive(&msg) == ECLIB_OK)
             ipc_send((thread_id)msg.target, &msg);
 
         syscall_irq_check_timeouts();

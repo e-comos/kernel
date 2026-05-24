@@ -48,6 +48,18 @@
 #define MM_FLAG_KERNEL_RX (MM_FLAG_READ | MM_FLAG_EXEC)
 #define MM_FLAG_USER_RX   (MM_FLAG_READ | MM_FLAG_EXEC | MM_FLAG_USER)
 
+/* Page table structures */
+#define PT_ENTRIES  512u
+#define PD_ENTRIES  512u
+#define PDPT_ENTRIES 512u
+#define PML4_ENTRIES 512u
+
+/* Extern declarations for page tables */
+extern uint64_t pml4[PML4_ENTRIES];
+extern uint64_t pdpt[PDPT_ENTRIES];
+extern uint64_t pd[PD_ENTRIES];
+extern uint64_t pt[8][PT_ENTRIES];
+
 /* Memory allocation flags */
 #define KMALLOC_NORMAL  0x00
 #define KMALLOC_ZEROED  0x01  /* Clear memory to zeros */
@@ -99,8 +111,8 @@ void mm_free_pages(void *pages, uint32_t count);
  * mm_map_page — insert a vaddr→paddr mapping into the current page tables.
  * flags: combination of MM_FLAG_* constants.
  */
-int mm_map_page(uint32_t vaddr, uint32_t paddr, uint32_t flags);
-int mm_unmap_page(uint32_t vaddr);
+int mm_map_page(uint64_t vaddr, uint32_t paddr, uint32_t flags);
+int mm_unmap_page(uint64_t vaddr);
 
 /*
  * mm_enable_paging — load CR3 and set CR0.PG.

@@ -120,6 +120,7 @@ my $config = {
             'arch/x86_64/interrupts/idt.c',
             'arch/x86_64/interrupts/isr.c',
             'arch/x86_64/interrupts/irq.c',
+            'arch/x86_64/cpu/syscall.c',  # SYSCALL/SYSRET mechanism
 	],
         
         # Assembly source files for low-level operations
@@ -128,6 +129,7 @@ my $config = {
             'boot/multiboot2_start.s',
             'boot/long_mode_switch.s',
             'src/arch/x86_64/switch_to_user_mode.S',
+            'arch/x86_64/cpu/syscall_entry.S',  # SYSCALL entry point
         ],
         
         # Additional assembly objects referenced in build
@@ -771,3 +773,5 @@ HELP
 # Execute the build system with appropriate exit code
 # Exit code 0 indicates success, 1 indicates failure
 exit(main() ? 0 : 1);
+
+

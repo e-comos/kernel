@@ -42,4 +42,7 @@ void syscall_irq_notify(uint8_t irq_num);
 void syscall_irq_check_timeouts(void);
 long syscall_handler(uint32_t num, uint32_t arg1, uint32_t arg2, uint32_t arg3);
 
+/* SYSCALL/SYSRET mechanism support */
+void enable_syscall_mechanism(void);
+
 #endif

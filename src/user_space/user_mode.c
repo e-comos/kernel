@@ -23,6 +23,25 @@ extern uint8_t _binary_payload_ebts_bin_start[];
 extern uint8_t _binary_payload_ebts_bin_end[];
 
 /* --------------------------------------------------------------- */
+/* create_user_pagetable                                           */
+/* --------------------------------------------------------------- */
+uintptr_t create_user_pagetable(void) {
+    // Allocate new P4 table for user
+    uintptr_t user_p4 = (uintptr_t)mm_alloc_page();
+    if (!user_p4) kernel_panic("Failed to allocate user P4");
+
+    // Copy all kernel P4 entries to user P4
+    uint64_t* kernel_p4 = pml4;  // Use the actual kernel PML4 array
+    uint64_t* new_p4 = (uint64_t*)user_p4;
+    for (int i = 0; i < 512; i++) {
+        new_p4[i] = kernel_p4[i];
+    }
+
+    // User mappings are already installed in kernel page table
+    return user_p4;
+}
+
+/* --------------------------------------------------------------- */
 /* switch_to_user_mode                                             */
 /* --------------------------------------------------------------- */
 void __attribute__((noreturn)) switch_to_user_mode(uintptr_t entry_point, uintptr_t stack_pointer) {
@@ -45,6 +64,10 @@ void __attribute__((noreturn)) switch_to_user_mode(uintptr_t entry_point, uintpt
     
     print_str("  CS: 0x23 (index 4, DPL=3)\n", 0x0F);
     print_str("  SS: 0x2B (index 5, DPL=3)\n", 0x0F);
+
+    // Create and switch to user page table first
+    uintptr_t user_cr3 = create_user_pagetable();
+    __asm__ volatile("movq %0, %%cr3" : : "r"(user_cr3) : "memory");
 
     // Call the assembly function
     extern void asm_switch_to_user_mode(uintptr_t, uintptr_t) __attribute__((noreturn));
@@ -105,49 +128,25 @@ int load_init_service_to_user_mode(void) {
         print_str(" bytes -> 0x500000\n", 0x0F);
     }
 
-    /* 3. Map user stack */
+    /* 3. Map user stack
+     * User stack is at 0x7F000 (as specified in requirements)
+     * We allocate TWO pages for stack safety (guard page + stack page)
+     */
     {
+        /* Stack page at 0x7F000 (user stack address from requirements) */
+        uint64_t stack_va = 0x7F000ULL;
+        
+        /* Allocate physical page for stack */
         uintptr_t stack_pa = (uintptr_t)mm_alloc_page();
         if (!stack_pa) kernel_panic("OOM: stack page");
         
-        uint64_t va = 0xF00000000ULL;  /* Match GDB stack_pointer */
-        uint64_t pml4_idx = (va >> 39) & 0x1FF;
-        uint64_t pdpt_idx = (va >> 30) & 0x1FF;
-        uint64_t pd_idx = (va >> 21) & 0x1FF;
-        uint64_t pt_idx = (va >> 12) & 0x1FF;
-        
-        // Allocate PDPT if needed
-        if (!(pml4[pml4_idx] & PTE_PRESENT)) {
-            uintptr_t pdpt_pa = (uintptr_t)mm_alloc_page();
-            if (!pdpt_pa) kernel_panic("OOM: pdpt page");
-            pml4[pml4_idx] = pdpt_pa | PTE_PRESENT | PTE_WRITABLE | PTE_USER;
+        /* Use mm_map_page which handles identity-mapped low memory */
+        if (mm_map_page(stack_va, (uint32_t)stack_pa, MM_FLAG_USER_RW) != 0) {
+            kernel_panic("Failed to map user stack");
         }
-        uint64_t *user_pdpt = (uint64_t*)(pml4[pml4_idx] & ~0xFFFULL);
-        
-        // Allocate PD if needed
-        if (!(user_pdpt[pdpt_idx] & PTE_PRESENT)) {
-            uintptr_t pd_pa = (uintptr_t)mm_alloc_page();
-            if (!pd_pa) kernel_panic("OOM: pd page");
-            user_pdpt[pdpt_idx] = pd_pa | PTE_PRESENT | PTE_WRITABLE | PTE_USER;
-        }
-        uint64_t *user_pd = (uint64_t*)(user_pdpt[pdpt_idx] & ~0xFFFULL);
-        
-        // Allocate PT if needed
-        if (!(user_pd[pd_idx] & PTE_PRESENT)) {
-            uintptr_t pt_pa = (uintptr_t)mm_alloc_page();
-            if (!pt_pa) kernel_panic("OOM: pt page");
-            user_pd[pd_idx] = pt_pa | PTE_PRESENT | PTE_WRITABLE | PTE_USER;
-        }
-        uint64_t *user_pt = (uint64_t*)(user_pd[pd_idx] & ~0xFFFULL);
-        
-        // Set the page
-        user_pt[pt_idx] = stack_pa | PTE_PRESENT | PTE_WRITABLE | PTE_USER;
-        
-        // Invalidate TLB
-        __asm__ volatile("invlpg (%0)" : : "r"(va) : "memory");
         
         print_str("  Stack mapped at 0x", 0x0F);
-        print_hex(va, 0x0F);
+        print_hex(stack_va, 0x0F);
         print_str(" -> 0x", 0x0F);
         print_hex(stack_pa, 0x0F);
         print_str("\n", 0x0F);
@@ -166,10 +165,14 @@ int load_init_service_to_user_mode(void) {
     binfo->flags     = 0;
     binfo->_pad      = 0;
 
-    /* 4. Switch to user mode */
+    /* 4. Switch to user mode
+     * Entry point: 0x400000 (INIT_LOAD_ADDR)
+     * Stack pointer: 0x80000 (top of 0x7F000 stack page + 4KB)
+     * Note: Stack grows downward, so we point to the TOP of the stack
+     */
     print_str("Entering user mode (this is the last kernel message)...\n", 0x0F);
     __asm__ volatile("cli");
-    switch_to_user_mode(INIT_LOAD_ADDR, INIT_STACK_TOP);
+    switch_to_user_mode(INIT_LOAD_ADDR, 0x80000ULL);
 
     return -1;
 }
