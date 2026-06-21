@@ -17,6 +17,11 @@
 
 #include <stdint.h>
 
+#define GDT_USER_CODE_INDEX 3
+#define GDT_USER_DATA_INDEX 4
+#define USER_CS_SELECTOR ((GDT_USER_CODE_INDEX << 3) | 0x03) // 0x1B
+#define USER_DS_SELECTOR ((GDT_USER_DATA_INDEX << 3) | 0x03)
+
 /* ------------------------------------------------------------------ */
 /* GDT entry (8 bytes)                                                */
 /* ------------------------------------------------------------------ */

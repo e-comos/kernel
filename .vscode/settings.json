@@ -1,3 +1,5 @@
 {
-    "cmake.sourceDirectory": "/home/saladin/kernel/test"
+    "cmake.sourceDirectory": "/home/saladin/kernel/test",
+    "cmake.ignoreCMakeListsMissing": true,
+    "C_Cpp.dimInactiveRegions": true
 }

@@ -110,10 +110,10 @@ syscall_entry:
     /* Restore stack alignment */
     addq $8, %rsp
     
-    /* Save the return value from syscall_handler (currently in RAX) */
-    pushq %rax
+    /* Save return value to RBX (callee-saved register, not saved on stack) */
+    movq %rax, %rbx
     
-    /* Restore all previously saved general-purpose registers */
+    /* Restore all previously saved general-purpose registers in reverse order */
     popq %r11     /* Restore original R11 (user RFLAGS) */
     popq %r10     /* Restore original R10 */
     popq %r9      /* Restore original R9 */
@@ -122,7 +122,10 @@ syscall_entry:
     popq %rsi     /* Restore original RSI */
     popq %rdx     /* Restore original RDX */
     popq %rcx     /* Restore original RCX (user return address) */
-    popq %rax     /* Restore original RAX (discarded, return value is in current RAX) */
+    popq %rax     /* Restore original RAX (will be overwritten with return value) */
+    
+    /* Put the return value back into RAX for SYSRET */
+    movq %rbx, %rax
     
     /* SYSRET instruction returns to user mode:
      * - Jumps to address in RCX (our user return address)

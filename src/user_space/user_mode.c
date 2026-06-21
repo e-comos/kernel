@@ -14,8 +14,8 @@
 
 
 /* GDT segment selectors for user mode */
-#define USER_CODE_SELECTOR 0x23
-#define USER_DATA_SELECTOR 0x2B
+#define USER_CODE_SELECTOR 0x1B   /* index 3, DPL=3, 64-bit code */
+#define USER_DATA_SELECTOR 0x23   /* index 4, DPL=3, data         */
 
 extern uint8_t _binary_payload_init_bin_start[];
 extern uint8_t _binary_payload_init_bin_end[];
@@ -62,12 +62,11 @@ void __attribute__((noreturn)) switch_to_user_mode(uintptr_t entry_point, uintpt
     print_str((user_rsp & 0xF) == 0 ? "yes" : "no", 0x0F);
     print_str(")\n", 0x0F);
     
-    print_str("  CS: 0x23 (index 4, DPL=3)\n", 0x0F);
-    print_str("  SS: 0x2B (index 5, DPL=3)\n", 0x0F);
+    print_str("  CS: 0x1B (index 3, DPL=3)\n", 0x0F);
+    print_str("  SS: 0x23 (index 4, DPL=3)\n", 0x0F);
 
-    // Create and switch to user page table first
-    uintptr_t user_cr3 = create_user_pagetable();
-    __asm__ volatile("movq %0, %%cr3" : : "r"(user_cr3) : "memory");
+    // Kernel page tables already have PTE_USER on all entries;
+    // no need to create a separate user CR3.
 
     // Call the assembly function
     extern void asm_switch_to_user_mode(uintptr_t, uintptr_t) __attribute__((noreturn));
@@ -96,7 +95,7 @@ int load_init_service_to_user_mode(void) {
         if (!pa) kernel_panic("OOM: init.bin page");
         mm_map_page((uint32_t)(INIT_LOAD_ADDR + p * PAGE_SIZE),
                     (uint32_t)(uintptr_t)pa,
-                    MM_FLAG_USER_RW);
+                    MM_FLAG_USER_RX);
     }
 
     uint8_t* init_dst = (uint8_t*)INIT_LOAD_ADDR;
@@ -118,7 +117,7 @@ int load_init_service_to_user_mode(void) {
             if (!pa) kernel_panic("OOM: ebts.bin page");
             mm_map_page((uint32_t)(EBTS_LOAD_ADDR + p * PAGE_SIZE),
                         (uint32_t)(uintptr_t)pa,
-                        MM_FLAG_USER_RW);
+                        MM_FLAG_USER_RX);
         }
         uint8_t* ebts_dst = (uint8_t*)EBTS_LOAD_ADDR;
         for (uint64_t i = 0; i < ebts_size; i++)

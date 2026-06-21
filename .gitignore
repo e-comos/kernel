@@ -2,3 +2,9 @@
 *.o
 */.DS_Store
 .DS_Store
+*.iso
+*.bin
+payload/*
+iso/*
+*.o
+payload/

@@ -1,7 +1,7 @@
 #include <kernel/ipc.h>
 #include <kernel/sched.h>
 #include <kernel/syscall.h>
-#include <string.h>
+#include <klibc/string.h>
 #include <kernel/internal/kernel.h>
 
 // IPC message queue

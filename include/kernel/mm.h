@@ -111,7 +111,7 @@ void mm_free_pages(void *pages, uint32_t count);
  * mm_map_page — insert a vaddr→paddr mapping into the current page tables.
  * flags: combination of MM_FLAG_* constants.
  */
-int mm_map_page(uint64_t vaddr, uint32_t paddr, uint32_t flags);
+int mm_map_page(uint64_t vaddr, uint64_t paddr, uint32_t flags);
 int mm_unmap_page(uint64_t vaddr);
 
 /*

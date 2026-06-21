@@ -107,7 +107,7 @@ check_long_mode:
 setup_page_tables:
     /* Clear page table memory (PML4, PDP, PD) */
     movl    $page_table_l4, %edi
-    movl    $(4096 * 3 / 4), %ecx
+    movl    $3072, %ecx
     xorl    %eax, %eax
     rep; stosl
 

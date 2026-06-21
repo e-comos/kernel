@@ -197,7 +197,7 @@ long strtol(const char* s, char** endptr, int base);
  */
 unsigned long strtoul(const char* s, char** endptr, int base);
 
-/* ================================================================
+/**
  * String formatting functions
  * ================================================================ */
 
@@ -210,6 +210,17 @@ unsigned long strtoul(const char* s, char** endptr, int base);
  * @return Number of characters written
  */
 int sprintf(char* buf, const char* format, ...);
+
+/**
+ * Format a string with size limit
+ * 
+ * @param buf Buffer to store the formatted string
+ * @param size Maximum buffer size
+ * @param format Format string
+ * @param ... Variable arguments
+ * @return Number of characters written (excluding null terminator)
+ */
+int snprintf(char* buf, size_t size, const char* format, ...);
 
 /* ================================================================
  * Character classification functions
