@@ -82,9 +82,9 @@ syscall_entry:
      * System V ABI: RDI=num, RSI=arg1, RDX=arg2, RCX=arg3
      */
     movq    112(%rsp), %rdi    /* Syscall number (original %rax) */
-    movq    88(%rsp), %rsi     /* Original %rdi (arg1) */
-    movq    96(%rsp), %rdx     /* Original %rsi (arg2) */
-    movq    104(%rsp), %rcx     /* Original %rdx (arg3) */
+    movq    80(%rsp), %rsi     /* Original %rdi (arg1) */
+    movq    88(%rsp), %rdx     /* Original %rsi (arg2) */
+    movq    96(%rsp), %rcx     /* Original %rdx (arg3) */
 
     /* Step 5: Call C syscall handler */
     call    syscall_handler
