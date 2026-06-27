@@ -91,6 +91,16 @@ void enable_syscall_mechanism(void) {
     percpu_t *pcpu = percpu_get();
     pcpu->kernel_rsp = (uint64_t)(uintptr_t)(syscall_kernel_stack + sizeof(syscall_kernel_stack));
     
+    print_str("  Kernel stack at 0x", 0x0A);
+    print_hex((uint32_t)(uintptr_t)syscall_kernel_stack, 0x0A);
+    print_str(", top at 0x", 0x0A);
+    print_hex((uint32_t)pcpu->kernel_rsp, 0x0A);
+    print_str("\n", 0x0A);
+    
+    print_str("  Per-CPU data at 0x", 0x0A);
+    print_hex((uint32_t)(uintptr_t)pcpu, 0x0A);
+    print_str("\n", 0x0A);
+    
     /* Step 1: Enable SYSCALL/SYSRET extensions in EFER */
     uint64_t efer_value = read_msr(MSR_EFER);
     efer_value |= EFER_SCE;  /* Set System Call Extensions bit */
