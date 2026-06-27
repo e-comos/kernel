@@ -1,0 +1,3 @@
+[submodule "init-service"]
+	path = init-service
+	url = https://github.com/e-comos/init-service.git
