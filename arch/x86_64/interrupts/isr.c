@@ -1,190 +1,250 @@
-/*
-    E-com_os Kernel - ISR C handler
-    Copyright (C) 2025,2026  Saladin5101
-
-    This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU Affero General Public License as published
-    by the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU Affero General Public License for more details.
-
-    You should have received a copy of the GNU Affero General Public License
-    along with this program.  If not, see <https://www.gnu.org/licenses/>.
-*/
+/* isr.c - Interrupt Service Routines for E-comOS Kernel
+ *
+ * Self-contained: no external headers beyond <stdint.h>.
+ * No paging, no keyboard wait.  Dumps all info then halts.
+ *
+ * Color scheme (VGA text-mode attribute bytes):
+ *   0x0A  green   - general-purpose registers, CS decode
+ *   0x0E  yellow  - segment and control registers
+ *   0x0F  white   - stack trace
+ *   0x0C  red     - exception title, fatal halt message
+ */
 
 #include <stdint.h>
-#include <kernel/printkit/print.h>
 
-/* Exception messages for debugging */
-static const char *exception_messages[] = {
-    "Division By Zero",
-    "Debug",
-    "Non Maskable Interrupt",
-    "Breakpoint",
-    "Into Detected Overflow",
-    "Out of Bounds",
-    "Invalid Opcode",
-    "No Coprocessor",
-    "Double Fault",
-    "Coprocessor Segment Overrun",
-    "Bad TSS",
-    "Segment Not Present",
-    "Stack Fault",
-    "General Protection Fault",
-    "Page Fault",
-    "Unknown Interrupt",
-    "Coprocessor Fault",
-    "Alignment Check",
-    "Machine Check",
-    "SIMD Floating Point Exception",
-    "Virtualization Exception",
-    "Reserved", "Reserved", "Reserved", "Reserved",
-    "Reserved", "Reserved", "Reserved", "Reserved",
-    "Reserved", "Reserved", "Reserved"
+/* ---------------------------------------------------------------------------
+ * External print functions (implemented in src/printkit/print.c)
+ * --------------------------------------------------------------------------- */
+void print_str(const char *str, uint8_t color);
+void print_hex64(uint64_t value, uint8_t color);
+void print_num64(uint64_t value, uint8_t color);
+
+/* ---------------------------------------------------------------------------
+ * registers_t
+ *
+ * Field order MUST match the push sequence in isr.s SAVE_REGS + stub pushes.
+ *
+ * SAVE_REGS pushes (first push = highest address, last push -> RSP):
+ *   rax rbx rcx rdx rsi rdi rbp r8 r9 r10 r11 r12 r13 r14 r15
+ * So from RSP upward:
+ *   r15 r14 r13 r12 r11 r10 r9 r8 rbp rdi rsi rdx rcx rbx rax
+ * Then stub pushes:
+ *   int_no  err_code
+ * Then CPU-pushed frame:
+ *   rip  cs  rflags  rsp  ss
+ * --------------------------------------------------------------------------- */
+typedef struct {
+    uint64_t r15, r14, r13, r12, r11, r10, r9, r8;
+    uint64_t rbp, rdi, rsi, rdx, rcx, rbx, rax;
+    uint64_t int_no, err_code;
+    uint64_t rip, cs, rflags, rsp, ss;
+} __attribute__((packed)) registers_t;
+
+/* ---------------------------------------------------------------------------
+ * Exception names (Intel SDM Vol.3, Table 6-1)
+ * --------------------------------------------------------------------------- */
+static const char *exc_names[32] = {
+    "Divide Error",                    /*  0  #DE */
+    "Debug",                           /*  1  #DB */
+    "Non-Maskable Interrupt",          /*  2  NMI */
+    "Breakpoint",                      /*  3  #BP */
+    "Overflow",                        /*  4  #OF */
+    "Bound Range Exceeded",            /*  5  #BR */
+    "Invalid Opcode",                  /*  6  #UD */
+    "Device Not Available",            /*  7  #NM */
+    "Double Fault",                    /*  8  #DF */
+    "Coprocessor Segment Overrun",     /*  9       */
+    "Invalid TSS",                     /* 10  #TS */
+    "Segment Not Present",             /* 11  #NP */
+    "Stack-Segment Fault",             /* 12  #SS */
+    "General Protection Fault",        /* 13  #GP */
+    "Page Fault",                      /* 14  #PF */
+    "Reserved",                        /* 15       */
+    "x87 Floating-Point Exception",    /* 16  #MF */
+    "Alignment Check",                 /* 17  #AC */
+    "Machine Check",                   /* 18  #MC */
+    "SIMD Floating-Point Exception",   /* 19  #XM */
+    "Virtualization Exception",        /* 20  #VE */
+    "Control-Protection Exception",    /* 21  #CP */
+    "Reserved",                        /* 22       */
+    "Reserved",                        /* 23       */
+    "Reserved",                        /* 24       */
+    "Reserved",                        /* 25       */
+    "Reserved",                        /* 26       */
+    "Reserved",                        /* 27       */
+    "Hypervisor Injection Exception",  /* 28  #HV */
+    "VMM Communication Exception",     /* 29  #VC */
+    "Security Exception",              /* 30  #SX */
+    "Reserved",                        /* 31       */
 };
 
-/* Page fault handler - implemented in mm.c */
-extern int handle_page_fault(uint64_t fault_addr, uint64_t error_code);
-
-/*
- * dump_exception_info - Print exception details for debugging
- *
- * Parameters:
- *   int_no  - Exception vector number (0-31)
- *   err_code - Error code pushed by CPU (or 0 if no error code)
- *   rip     - Instruction pointer that caused the exception
- *   cs      - Code segment selector
- */
-static void dump_exception_info(uint64_t int_no, uint64_t err_code, 
-                                 uint64_t rip, uint64_t cs) {
-    print_str("\n=== EXCEPTION ===\n", 0x4F);
-    
-    /* Exception name */
-    if (int_no < 32) {
-        print_str("  ", 0x4F);
-        print_str(exception_messages[int_no], 0x4F);
-        print_str(" (#", 0x4F);
-        print_num((uint32_t)int_no, 0x4F);
-        print_str(")\n", 0x4F);
-    }
-    
-    /* Error code */
-    print_str("  Error Code: 0x", 0x4F);
-    print_hex((uint32_t)err_code, 0x4F);
-    print_str("\n", 0x4F);
-    
-    /* Faulting instruction */
-    print_str("  RIP: 0x", 0x4F);
-    print_hex(rip, 0x4F);
-    print_str("  CS: 0x", 0x4F);
-    print_hex((uint32_t)cs, 0x4F);
-    print_str("\n", 0x4F);
-    
-    /* Decode error code for specific exceptions */
-    if (int_no == 14) {
-        /* Page Fault error code bits */
-        print_str("  Page Fault: ", 0x4F);
-        if (err_code & 0x01) print_str("P ", 0x0F);  /* Present */
-        else                 print_str("NP ", 0x0F); /* Not Present */
-        if (err_code & 0x02) print_str("Write ", 0x0F);
-        else                 print_str("Read ", 0x0F);
-        if (err_code & 0x04) print_str("User ", 0x0F);
-        else                 print_str("Kernel ", 0x0F);
-        if (err_code & 0x10) print_str("Execute ", 0x0F);
-        print_str("\n", 0x4F);
-        
-        /* Read CR2 for fault address */
-        uint64_t fault_addr;
-        __asm__ volatile("mov %%cr2, %0" : "=r"(fault_addr));
-        print_str("  Fault Address (CR2): 0x", 0x4F);
-        print_hex(fault_addr, 0x4F);
-        print_str("\n", 0x4F);
-    }
-    
-    if (int_no == 13) {
-        /* General Protection Fault error code */
-        if (err_code != 0) {
-            print_str("  Segment Selector Index: ", 0x4F);
-            print_num((uint32_t)(err_code & 0xFFF8), 0x4F);
-            if (err_code & 0x01) print_str(" EXT", 0x0F);
-            if (err_code & 0x02) print_str(" IDT", 0x0F);
-            if (err_code & 0x04) print_str(" TI", 0x0F);
-            print_str("\n", 0x4F);
-        } else {
-            print_str("  Not segment-related\n", 0x4F);
-        }
-    }
-    
-    print_str("==================\n", 0x4F);
+/* ---------------------------------------------------------------------------
+ * Inline CR readers
+ * --------------------------------------------------------------------------- */
+static inline uint64_t read_cr0(void)
+{
+    uint64_t v;
+    __asm__ volatile("movq %%cr0, %0" : "=r"(v));
+    return v;
+}
+static inline uint64_t read_cr2(void)
+{
+    uint64_t v;
+    __asm__ volatile("movq %%cr2, %0" : "=r"(v));
+    return v;
+}
+static inline uint64_t read_cr3(void)
+{
+    uint64_t v;
+    __asm__ volatile("movq %%cr3, %0" : "=r"(v));
+    return v;
+}
+static inline uint64_t read_cr4(void)
+{
+    uint64_t v;
+    __asm__ volatile("movq %%cr4, %0" : "=r"(v));
+    return v;
 }
 
-/*
- * isr_handler - Central interrupt service routine handler
- *
- * CRITICAL: This runs on the interrupt stack with interrupts disabled.
- * DO NOT call functions that may allocate memory or use the heap,
- * as the interrupt context may have limited stack space.
- *
- * Why Invalid Opcode (#UD = int_no 6) happens:
- *   1. Wrong CS selector in iretq frame (must match a 64-bit code segment in GDT)
- *   2. User code at RIP is not valid x86-64 instructions
- *   3. RIP points to unmapped memory (CPU fetches garbage)
- *   4. RIP is not canonical (bits 48-63 not sign-extended)
- *
- * Why General Protection Fault (#GP = int_no 13) happens:
- *   1. Segment limit violation (unlikely in flat 64-bit model)
- *   2. Privilege violation (user accessing kernel memory)
- *   3. Writing to read-only memory
- *   4. Loading invalid selector into segment register
- *
- * Why Page Fault (#PF = int_no 14) happens:
- *   1. Accessing unmapped virtual address
- *   2. Privilege violation (user accessing kernel page without U/S bit)
- *   3. Writing to read-only page
- *   4. Executing from non-executable page (NX bit)
- */
-void isr_handler(uint64_t int_no, uint64_t err_code, uint64_t rip, uint64_t cs) {
-    /* Handle CPU exceptions (vector 0-31) */
-    if (int_no < 32) {
-        
-        /* Page Fault (#PF) - Try dynamic page allocation first */
-        if (int_no == 14) {
-            uint64_t fault_addr;
-            __asm__ volatile("mov %%cr2, %0" : "=r"(fault_addr));
-            
-            /* Try to handle the page fault dynamically */
-            if (handle_page_fault(fault_addr, err_code)) {
-                /* Page fault handled - return to re-execute instruction */
-                return;
-            }
-            
-            /* Unhandled page fault - dump info and halt */
-            /* Note: We don't have RIP/CS here, will dump what we can */
-            dump_exception_info(int_no, err_code, fault_addr, 0);
-            goto halt;
-        }
-        
-        /* Double Fault (#DF) - Cannot recover, minimal output */
-        if (int_no == 8) {
-            print_str("\n!!! DOUBLE FAULT - SYSTEM HALTED !!!\n", 0x4F);
-            goto halt;
-        }
-        
-        /* All other exceptions - dump info and halt */
-        /* For now, we pass 0 for RIP/CS since we don't extract them from stack */
-        dump_exception_info(int_no, err_code, rip, cs);
-        goto halt;
-    }
-    
-    /* Hardware interrupts (IRQ) would be handled here */
-    return;
+/* ---------------------------------------------------------------------------
+ * Small formatting helpers
+ * --------------------------------------------------------------------------- */
+static void pr_reg(const char *name, uint64_t val, uint8_t c)
+{
+    print_str(name, c);
+    print_str(": 0x", c);
+    print_hex64(val, c);
+}
 
-halt:
-    __asm__ volatile("cli");
+/* ---------------------------------------------------------------------------
+ * decode_cs - print GDT selector fields and privilege level
+ * --------------------------------------------------------------------------- */
+static void decode_cs(uint64_t cs)
+{
+    uint8_t c = 0x0A;
+    print_str("CS Decode:\n", c);
+    print_str("  Raw CS: 0x", c);
+    print_hex64(cs, c);
+    print_str("\n  Index: ", c);
+    print_num64((cs >> 3) & 0x1FFF, c);
+    print_str("  TI: ", c);
+    print_str((cs & 0x04) ? "LDT" : "GDT", c);
+    print_str("  RPL: ", c);
+    switch (cs) {
+    case 0x08: print_str("Ring 0 (Kernel)", c); break;
+    case 0x1B: print_str("Ring 3 (User)",   c); break;
+    default:   print_str("Unknown selector", c); break;
+    }
+    print_str("\n", c);
+}
+
+/* ---------------------------------------------------------------------------
+ * isr_handler - called from isr_common_stub
+ *
+ *   rdi = registers_t*  (RSP after SAVE_REGS)
+ *
+ * For fatal exceptions this function never returns (halts in place).
+ * For #BP (3) and #OF (4) it returns so execution can resume.
+ * --------------------------------------------------------------------------- */
+void isr_handler(registers_t *regs)
+{
+    /* ---- Error Code + RFLAGS header (red) -------------------------------- */
+    print_str("Error Code: 0x", 0x0C);
+    print_hex64(regs->err_code, 0x0C);
+    print_str("    RFLAGS: 0x", 0x0C);
+    print_hex64(regs->rflags, 0x0C);
+    print_str("\n", 0x0C);
+
+    /* ---- Enhanced debug dump banner (green) ------------------------------ */
+    print_str("=== ENHANCED DEBUG DUMP ===\n", 0x0A);
+
+    pr_reg("RIP", regs->rip, 0x0A);
+    print_str("  ", 0x0A);
+    pr_reg("CS", regs->cs, 0x0A);
+    print_str("\n", 0x0A);
+
+    pr_reg("RSP", regs->rsp, 0x0A);
+    print_str("  ", 0x0A);
+    pr_reg("SS", regs->ss, 0x0A);
+    print_str("\n", 0x0A);
+
+    /* ---- General-purpose registers (green) ------------------------------- */
+    print_str("\nGeneral Purpose Registers:\n", 0x0A);
+
+    pr_reg("RAX", regs->rax, 0x0A); print_str("  ", 0x0A);
+    pr_reg("RBX", regs->rbx, 0x0A); print_str("  ", 0x0A);
+    pr_reg("RCX", regs->rcx, 0x0A); print_str("  ", 0x0A);
+    pr_reg("RDX", regs->rdx, 0x0A); print_str("\n", 0x0A);
+
+    pr_reg("RSI", regs->rsi, 0x0A); print_str("  ", 0x0A);
+    pr_reg("RDI", regs->rdi, 0x0A); print_str("  ", 0x0A);
+    pr_reg("RBP", regs->rbp, 0x0A); print_str("  ", 0x0A);
+    pr_reg("R8 ", regs->r8,  0x0A); print_str("\n", 0x0A);
+
+    pr_reg("R9 ", regs->r9,  0x0A); print_str("  ", 0x0A);
+    pr_reg("R10", regs->r10, 0x0A); print_str("  ", 0x0A);
+    pr_reg("R11", regs->r11, 0x0A); print_str("  ", 0x0A);
+    pr_reg("R12", regs->r12, 0x0A); print_str("\n", 0x0A);
+
+    pr_reg("R13", regs->r13, 0x0A); print_str("  ", 0x0A);
+    pr_reg("R14", regs->r14, 0x0A); print_str("  ", 0x0A);
+    pr_reg("R15", regs->r15, 0x0A); print_str("\n", 0x0A);
+
+    /* ---- Segment registers (yellow) -------------------------------------- */
+    print_str("\nSegment Registers:\n", 0x0E);
+
+    /* DS/ES/FS/GS are not in registers_t: the stub overwrites them with 0x10
+     * before calling us.  Read the current (kernel) values live. */
+    uint64_t ds, es, fs, gs;
+    __asm__ volatile("xorq %0,%0; movw %%ds,%%ax" : "=a"(ds));
+    __asm__ volatile("xorq %0,%0; movw %%es,%%ax" : "=a"(es));
+    __asm__ volatile("xorq %0,%0; movw %%fs,%%ax" : "=a"(fs));
+    __asm__ volatile("xorq %0,%0; movw %%gs,%%ax" : "=a"(gs));
+
+    pr_reg("DS", ds, 0x0E); print_str("  ", 0x0E);
+    pr_reg("ES", es, 0x0E); print_str("  ", 0x0E);
+    pr_reg("FS", fs, 0x0E); print_str("  ", 0x0E);
+    pr_reg("GS", gs, 0x0E); print_str("\n", 0x0E);
+
+    /* ---- Control registers (yellow) -------------------------------------- */
+    print_str("\nControl Registers:\n", 0x0E);
+
+    pr_reg("CR0", read_cr0(), 0x0E); print_str("  ", 0x0E);
+    pr_reg("CR2", read_cr2(), 0x0E); print_str("\n", 0x0E);
+    pr_reg("CR3", read_cr3(), 0x0E); print_str("  ", 0x0E);
+    pr_reg("CR4", read_cr4(), 0x0E); print_str("\n", 0x0E);
+
+    /* ---- Stack near RSP, first 8 entries (white) ------------------------- */
+    print_str("\nStack near RSP (first 8 entries):\n", 0x0F);
+    uint64_t *stack = (uint64_t *)(uintptr_t)regs->rsp;
+    for (int i = 0; i < 8; i++) {
+        print_str("  [RSP+", 0x0F);
+        print_num64((uint64_t)(i * 8), 0x0F);
+        print_str("] 0x", 0x0F);
+        print_hex64(stack[i], 0x0F);
+        print_str("\n", 0x0F);
+    }
+
+    /* ---- CS decode (green) ----------------------------------------------- */
+    print_str("\n", 0x0A);
+    decode_cs(regs->cs);
+
+    /* ---- Fatal halt message (red) ---------------------------------------- */
+    print_str("\n=======================\n", 0x0C);
+    if (regs->int_no < 32) {
+        print_str(exc_names[regs->int_no], 0x0C);
+    } else {
+        print_str("Unknown Exception", 0x0C);
+    }
+    print_str(". System will halt.\n", 0x0C);
+    print_str("=======================\n", 0x0C);
+
+    /* Non-fatal vectors: return so the stub can iretq */
+    if (regs->int_no == 3 || regs->int_no == 4) {
+        return;
+    }
+
+    /* Fatal: halt here */
     while (1) {
         __asm__ volatile("hlt");
     }

@@ -19,6 +19,7 @@
 #include <kernel/debug.h>
 #include <kernel/early_init.h>
 #include <kernel/printkit/print.h>
+#include <klibc/string.h>
 #include <stdint.h>
 
 /* Serial port COM1 for early debug output */
@@ -73,14 +74,30 @@ void kernel_panic(const char *msg) {
     __asm__ volatile("cli");
 
     /* Output to screen (VGA) */
-    print_str("KERNEL PANIC: ", 0x4F); /* White on Red */
+    print_str("\n*** KERNEL PANIC ***\n", 0x4F); /* White on Red */
+    print_str("Message: ", 0x4F);
     print_str(msg, 0x4F);
-    print_str("\n", 0x4F);
-
+    print_str("\n\n", 0x4F);
+    
+    /* Try to get current register state */
+    uint64_t rbp, rsp, rip;
+    __asm__ volatile("mov %%rbp, %0" : "=r"(rbp));
+    __asm__ volatile("mov %%rsp, %0" : "=r"(rsp));
+    __asm__ volatile("lea 0(%%rip), %0" : "=r"(rip));
+    
+    char buf[128];
+    snprintf(buf, sizeof(buf), "RBP: 0x%016llX\nRSP: 0x%016llX\nRIP: 0x%016llX\n", 
+             (unsigned long long)rbp, (unsigned long long)rsp, (unsigned long long)rip);
+    print_str(buf, 0x4F);
+    
     /* Output to serial port for redundancy */
-    early_debug_puts("KERNEL PANIC: ");
+    early_debug_puts("\n*** KERNEL PANIC ***\n");
+    early_debug_puts("Message: ");
     early_debug_puts(msg);
-    early_debug_puts("\n");
+    early_debug_puts("\n\n");
+    snprintf(buf, sizeof(buf), "RBP: 0x%016llX\nRSP: 0x%016llX\nRIP: 0x%016llX\n", 
+             (unsigned long long)rbp, (unsigned long long)rsp, (unsigned long long)rip);
+    early_debug_puts(buf);
 
     /* Halt the system indefinitely */
     while (1) {

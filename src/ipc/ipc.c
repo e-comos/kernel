@@ -1,7 +1,7 @@
 #include <kernel/ipc.h>
 #include <kernel/sched.h>
 #include <kernel/syscall.h>
-#include <string.h>
+#include <klibc/string.h>
 #include <kernel/internal/kernel.h>
 
 // IPC message queue
@@ -53,7 +53,7 @@ int ipc_send(thread_id target, ipc_message_t *msg) {
         target_thread->state = THREAD_READY;
     }
     
-    return ECLIB_OK;
+    return IPC_OK;
 }
 
 int ipc_receive(ipc_message_t *msg) {
@@ -81,7 +81,7 @@ int ipc_receive(ipc_message_t *msg) {
     ipc_queue_head = (ipc_queue_head + 1) % IPC_MAX_QUEUE_SIZE;
     ipc_queue_count--;
 
-    return ECLIB_OK;
+    return IPC_OK;
 }
 
 int ipc_send_msg(uint32_t type, uint32_t flags, uint32_t receiver_pid,

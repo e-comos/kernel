@@ -1,5 +1,5 @@
 name: TLA+ Model Checking
-on: [push, pull_request, schedule]
+on: [push, pull_request]
 
 jobs:
   tla-verification:

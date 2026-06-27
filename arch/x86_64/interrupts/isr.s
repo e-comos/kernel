@@ -1,38 +1,60 @@
-/* ============================================================================
- * isr.S - 64-bit Interrupt Service Routine Stubs for E-comOS Kernel
- * 
- * This file contains the low-level assembly entry points (stubs) for all
- * x86_64 CPU exceptions, the system call interrupt (int 0x80), and provides
- * common handling stubs. It bridges the hardware-generated interrupt/exception
- * to the C-language handlers in the kernel.
+/* isr.s - 64-bit Interrupt Service Routine Stubs
  *
- * Core Components:
- *   1. Macros to save/restore the full CPU register state.
- *   2. Macros to generate individual exception entry points (0-31).
- *   3. The system call entry point for int 0x80 (vector 128).
- *   4. Common handler stubs that set up the C calling environment.
+ * AT&T syntax, assembled with x86_64-elf-as --64.
  *
- * A critical correction has been made to `isr_common_stub` to dynamically
- * adjust stack pointer offsets based on whether the exception originated
- * from user or kernel mode, fixing the previously observed erroneous
- * CS/RIP values (e.g., CS=0x0, RIP=0xFFFFFFFF).
- * ============================================================================
+ * Stack layout AFTER isr_common_stub saves registers (from low addr / RSP):
+ *
+ *   [RSP+  0]  r15           \
+ *   [RSP+  8]  r14            |
+ *   [RSP+ 16]  r13            |
+ *   [RSP+ 24]  r12            |
+ *   [RSP+ 32]  r11            |
+ *   [RSP+ 40]  r10            |  SAVE_REGS (15 pushq = 120 bytes)
+ *   [RSP+ 48]  r9             |
+ *   [RSP+ 56]  r8             |
+ *   [RSP+ 64]  rbp            |
+ *   [RSP+ 72]  rdi            |
+ *   [RSP+ 80]  rsi            |
+ *   [RSP+ 88]  rdx            |
+ *   [RSP+ 96]  rcx            |
+ *   [RSP+104]  rbx            |
+ *   [RSP+112]  rax           /
+ *   [RSP+120]  int_no        <- pushed by stub
+ *   [RSP+128]  err_code      <- pushed by stub OR by CPU
+ *   [RSP+136]  rip           \
+ *   [RSP+144]  cs             |  pushed automatically by CPU on interrupt
+ *   [RSP+152]  rflags         |
+ *   [RSP+160]  rsp (user)     |
+ *   [RSP+168]  ss            /
+ *
+ * This layout maps 1-to-1 onto registers_t defined in isr.c.
+ *
+ * isr_handler C signature:
+ *   void isr_handler(registers_t *regs)    -- rdi = regs = RSP after SAVE_REGS
+ *
+ * syscall_handler C signature:
+ *   long syscall_handler(registers_t *regs, uint64_t num,
+ *                        uint64_t arg1, uint64_t arg2, uint64_t arg3)
  */
 
 .section .text
 
-/* ============================================================================
- * Register Save/Restore Macros
- * ============================================================================
- */
+.extern isr_handler
+.extern syscall_handler
 
-/*
- * SAVE_REGS - Saves all general-purpose registers onto the stack.
- *
- * The x86_64 architecture lacks a `pusha` instruction. This macro manually
- * pushes all 15 general-purpose registers (excluding RSP) to create a
- * consistent stack frame for the C handler. The order is chosen for clarity.
- */
+.global isr0,  isr1,  isr2,  isr3,  isr4,  isr5,  isr6,  isr7
+.global isr8,  isr9,  isr10, isr11, isr12, isr13, isr14, isr15
+.global isr16, isr17, isr18, isr19, isr20, isr21, isr22, isr23
+.global isr24, isr25, isr26, isr27, isr28, isr29, isr30, isr31
+.global isr128
+
+/* ---------------------------------------------------------------------------
+ * SAVE_REGS / RESTORE_REGS
+ * Push order (first push = highest address, last push -> RSP):
+ *   rax rbx rcx rdx rsi rdi rbp r8 r9 r10 r11 r12 r13 r14 r15
+ * registers_t field order (low address / RSP first):
+ *   r15 r14 r13 r12 r11 r10 r9 r8 rbp rdi rsi rdx rcx rbx rax
+ * --------------------------------------------------------------------------- */
 .macro SAVE_REGS
     pushq %rax
     pushq %rbx
@@ -51,319 +73,159 @@
     pushq %r15
 .endm
 
-/*
- * RESTORE_REGS - Restores all general-purpose registers from the stack.
- *
- * Pops registers in the reverse order of SAVE_REGS. This must be called
- * to maintain stack balance before returning from an interrupt.
- */
 .macro RESTORE_REGS
-    popq %r15
-    popq %r14
-    popq %r13
-    popq %r12
-    popq %r11
-    popq %r10
-    popq %r9
-    popq %r8
-    popq %rbp
-    popq %rdi
-    popq %rsi
-    popq %rdx
-    popq %rcx
-    popq %rbx
-    popq %rax
+    popq  %r15
+    popq  %r14
+    popq  %r13
+    popq  %r12
+    popq  %r11
+    popq  %r10
+    popq  %r9
+    popq  %r8
+    popq  %rbp
+    popq  %rdi
+    popq  %rsi
+    popq  %rdx
+    popq  %rcx
+    popq  %rbx
+    popq  %rax
 .endm
 
 /* ============================================================================
- * ISR Stub Generation Macros
- * ============================================================================
- */
+ * Exception entry points  (vectors 0-31)
+ *
+ * Vectors WITH a CPU-pushed error code (no dummy needed):
+ *   8  #DF   Double Fault
+ *   10 #TS   Invalid TSS
+ *   11 #NP   Segment Not Present
+ *   12 #SS   Stack-Segment Fault
+ *   13 #GP   General Protection Fault
+ *   14 #PF   Page Fault
+ *   17 #AC   Alignment Check
+ *   21 #CP   Control-Protection Exception
+ *   29 #VC   VMM Communication Exception
+ *   30 #SX   Security Exception
+ *
+ * All others push dummy $0 first so that err_code is always present.
+ * ============================================================================ */
 
-/*
- * ISR_NOERRCODE - Generates a stub for an exception that does NOT push
- *                 an error code onto the stack.
- *
- * To maintain a uniform stack frame for the common handler, a dummy
- * error code (0) is pushed.
- *
- * @num: The interrupt vector number (0-31).
- */
-.macro ISR_NOERRCODE num
-.global isr\num
-isr\num:
-    cli                     /* Disable interrupts */
-    pushq $0                /* Push dummy error code (0) */
-    pushq $\num            /* Push the interrupt vector number */
-    jmp isr_common_stub    /* Jump to the shared handler */
-.endm
+isr0:  cli; pushq $0;  pushq $0;  jmp isr_common_stub
+isr1:  cli; pushq $0;  pushq $1;  jmp isr_common_stub
+isr2:  cli; pushq $0;  pushq $2;  jmp isr_common_stub
+isr3:  cli; pushq $0;  pushq $3;  jmp isr_common_stub
+isr4:  cli; pushq $0;  pushq $4;  jmp isr_common_stub
+isr5:  cli; pushq $0;  pushq $5;  jmp isr_common_stub
+isr6:  cli; pushq $0;  pushq $6;  jmp isr_common_stub
+isr7:  cli; pushq $0;  pushq $7;  jmp isr_common_stub
+isr8:  cli;            pushq $8;  jmp isr_common_stub   /* #DF - CPU pushes err_code */
+isr9:  cli; pushq $0;  pushq $9;  jmp isr_common_stub
+isr10: cli;            pushq $10; jmp isr_common_stub   /* #TS */
+isr11: cli;            pushq $11; jmp isr_common_stub   /* #NP */
+isr12: cli;            pushq $12; jmp isr_common_stub   /* #SS */
+isr13: cli;            pushq $13; jmp isr_common_stub   /* #GP */
+isr14: cli;            pushq $14; jmp isr_common_stub   /* #PF */
+isr15: cli; pushq $0;  pushq $15; jmp isr_common_stub
+isr16: cli; pushq $0;  pushq $16; jmp isr_common_stub
+isr17: cli;            pushq $17; jmp isr_common_stub   /* #AC */
+isr18: cli; pushq $0;  pushq $18; jmp isr_common_stub
+isr19: cli; pushq $0;  pushq $19; jmp isr_common_stub
+isr20: cli; pushq $0;  pushq $20; jmp isr_common_stub
+isr21: cli;            pushq $21; jmp isr_common_stub   /* #CP */
+isr22: cli; pushq $0;  pushq $22; jmp isr_common_stub
+isr23: cli; pushq $0;  pushq $23; jmp isr_common_stub
+isr24: cli; pushq $0;  pushq $24; jmp isr_common_stub
+isr25: cli; pushq $0;  pushq $25; jmp isr_common_stub
+isr26: cli; pushq $0;  pushq $26; jmp isr_common_stub
+isr27: cli; pushq $0;  pushq $27; jmp isr_common_stub
+isr28: cli; pushq $0;  pushq $28; jmp isr_common_stub
+isr29: cli;            pushq $29; jmp isr_common_stub   /* #VC */
+isr30: cli;            pushq $30; jmp isr_common_stub   /* #SX */
+isr31: cli; pushq $0;  pushq $31; jmp isr_common_stub
 
-/*
- * ISR_ERRCODE - Generates a stub for an exception that DOES push an
- *               error code onto the stack.
- *
- * The CPU automatically pushes the error code before transferring control.
- * We only need to push the vector number.
- *
- * @num: The interrupt vector number (0-31).
- */
-.macro ISR_ERRCODE num
-.global isr\num
-isr\num:
-    cli                     /* Disable interrupts */
-    pushq $\num            /* Push the interrupt vector number */
-    jmp isr_common_stub    /* Jump to the shared handler */
-.endm
+/* System call entry (int 0x80, vector 128) */
+isr128: cli; pushq $0; pushq $128; jmp syscall_stub
 
 /* ============================================================================
- * CPU Exception Handlers (Vectors 0-31)
- * ============================================================================
- */
-
-/* Generate stubs for all architectural exceptions. */
-ISR_NOERRCODE 0   /* #DE: Divide Error */
-ISR_NOERRCODE 1   /* #DB: Debug */
-ISR_NOERRCODE 2   /* NMI: Non-Maskable Interrupt */
-ISR_NOERRCODE 3   /* #BP: Breakpoint */
-ISR_NOERRCODE 4   /* #OF: Overflow */
-ISR_NOERRCODE 5   /* #BR: Bound Range Exceeded */
-ISR_NOERRCODE 6   /* #UD: Invalid Opcode */
-ISR_NOERRCODE 7   /* #NM: Device Not Available */
-ISR_ERRCODE   8   /* #DF: Double Fault */
-ISR_NOERRCODE 9   /* Coprocessor Segment Overrun (reserved) */
-ISR_ERRCODE   10  /* #TS: Invalid TSS */
-ISR_ERRCODE   11  /* #NP: Segment Not Present */
-ISR_ERRCODE   12  /* #SS: Stack Segment Fault */
-ISR_ERRCODE   13  /* #GP: General Protection Fault */
-ISR_ERRCODE   14  /* #PF: Page Fault */
-ISR_NOERRCODE 15  /* (Intel reserved) */
-ISR_NOERRCODE 16  /* #MF: x87 Floating-Point Exception */
-ISR_ERRCODE   17  /* #AC: Alignment Check */
-ISR_NOERRCODE 18  /* #MC: Machine Check */
-ISR_NOERRCODE 19  /* #XM: SIMD Floating-Point Exception */
-ISR_NOERRCODE 20  /* #VE: Virtualization Exception */
-/* Vectors 21-31 are reserved */
-ISR_NOERRCODE 21
-ISR_NOERRCODE 22
-ISR_NOERRCODE 23
-ISR_NOERRCODE 24
-ISR_NOERRCODE 25
-ISR_NOERRCODE 26
-ISR_NOERRCODE 27
-ISR_NOERRCODE 28
-ISR_NOERRCODE 29
-ISR_NOERRCODE 30
-ISR_NOERRCODE 31
-
-/* ============================================================================
- * System Call Handler (Legacy int 0x80, Vector 128)
- * ============================================================================
- */
-
-/*
- * isr128 - Traditional system call entry point via software interrupt 0x80.
+ * isr_common_stub
  *
- * User-space programs execute 'int 0x80' to request kernel services.
- * This stub provides the bridge to the C system call dispatcher.
- */
-.global isr128
-isr128:
-    cli
-    pushq $0        /* Dummy error code */
-    pushq $128      /* Interrupt vector 128 */
-    jmp syscall_stub
-
-/* ============================================================================
- * System Call Handling Stub (for int 0x80)
- * ============================================================================
- */
-
-/*
- * syscall_stub - Common handler for int 0x80 system calls.
+ * On arrival the stub-pushed fields are already on the stack:
+ *   [RSP] = int_no   [RSP+8] = err_code   then CPU frame above
  *
- * Saves context, extracts arguments according to the kernel's system call
- * ABI, calls the C handler, and returns the result in the saved RAX slot.
- *
- * Stack after SAVE_REGS (15 pushes = 120 bytes):
- *   RSP+0   : Saved RAX (system call number)
- *   RSP+8   : Saved RBX (arg1)
- *   RSP+16  : Saved RCX (arg2)
- *   RSP+24  : Saved RDX (arg3)
- *   ... (other saved registers)
- *   RSP+120 : Vector Number (128)
- *   RSP+128 : Error Code (0)
- */
-syscall_stub:
-    SAVE_REGS
-
-    /* Load kernel data segment descriptors (GDT index 2 -> 0x10) */
-    movw $0x10, %ax
-    movw %ax, %ds
-    movw %ax, %es
-    movw %ax, %fs
-    movw %ax, %gs
-
-    /*
-     * Prepare arguments for the C handler: syscall_handler(num, arg1, arg2, arg3)
-     * Arguments are extracted from the saved register slots on the stack.
-     * Syscall ABI for int 0x80 (as per the kernel's convention):
-     *   RAX -> System call number
-     *   RBX -> First argument
-     *   RCX -> Second argument
-     *   RDX -> Third argument
-     */
-    movq 0(%rsp), %rdi   /* arg1: syscall number (from saved RAX) */
-    movq 8(%rsp), %rsi   /* arg2: first argument (from saved RBX) */
-    movq 16(%rsp), %rdx  /* arg3: second argument (from saved RCX) */
-    movq 24(%rsp), %rcx  /* arg4: third argument (from saved RDX) */
-
-    /* Call the C system call dispatcher */
-    call syscall_handler
-
-    /* Store the return value back into the saved RAX slot on the stack */
-    movq %rax, 0(%rsp)
-
-    /* Restore segment registers */
-    movw $0x10, %ax
-    movw %ax, %ds
-    movw %ax, %es
-    movw %ax, %fs
-    movw %ax, %gs
-
-    RESTORE_REGS
-    addq $16, %rsp   /* Clean up vector number and error code */
-    sti
-    iretq
-
-/* ============================================================================
- * Common Exception Handling Stub (Corrected Version)
- * ============================================================================
- */
-
-/*
- * isr_common_stub - The shared handler for all CPU exceptions (0-31).
- *
- * This is the main entry point after the individual ISR stubs. It saves
- * the full CPU context, determines the correct stack layout, calls the
- * C exception handler, and then restores context.
- *
- * CRITICAL FIX: The stack layout differs depending on whether the exception
- * occurred in user mode (CPL=3) or kernel mode (CPL=0). The CPU only
- * automatically pushes the user SS and RSP if a privilege level change occurs.
- *
- * Initial Stack (from individual ISR):
- *   [SS]       (optional, if CPL changed)
- *   [RSP]      (optional, if CPL changed)
- *   [RFLAGS]
- *   [CS]
- *   [RIP]
- *   [Error Code] (or dummy 0)
- *   [Vector Number]
- *   <-- RSP points here when isr_common_stub begins
- *
- * After SAVE_REGS (adds 120 bytes), we need to locate RIP and CS.
- * Their offsets depend on the presence of the optional SS and RSP.
- *
- * This version correctly identifies the CPL from the saved CS on the stack
- * to calculate the right offsets.
- */
+ * After SAVE_REGS, RSP points at registers_t.
+ * We pass RSP as the single argument (rdi) to isr_handler.
+ * isr_handler never returns (it halts), but we keep the iretq path
+ * for non-fatal vectors (#BP, #OF) that do return 0.
+ * ============================================================================ */
 isr_common_stub:
     SAVE_REGS
 
-    /* Load kernel data segments (GDT index 2 -> 0x10) */
+    /* Switch to kernel data segment */
     movw $0x10, %ax
     movw %ax, %ds
     movw %ax, %es
     movw %ax, %fs
     movw %ax, %gs
 
-    /*
-     * === DYNAMIC OFFSET CALCULATION ===
-     * We need to read the CS value that was on the stack *before* SAVE_REGS.
-     * After SAVE_REGS (120 bytes pushed), the original stack contents are
-     * at higher addresses. Let's calculate the potential location of the
-     * saved CS.
-     *
-     * Let's define the initial RSP when entering isr_common_stub as `RSP0`.
-     * Contents at RSP0:
-     *   RSP0      : Vector Number
-     *   RSP0 + 8  : Error Code
-     *   RSP0 + 16 : RIP
-     *   RSP0 + 24 : CS          <-- The CS we need to check!
-     *   RSP0 + 32 : RFLAGS
-     *   RSP0 + 40 : [Optional User RSP]
-     *   RSP0 + 48 : [Optional User SS]
-     *
-     * After SAVE_REGS, RSP = RSP0 - 120.
-     * Therefore, the saved CS is at: (RSP + 120) + 24 = RSP + 144.
-     * This matches the original calculation IF the exception came from user mode
-     * (and optional words are present). Let's load it and check its CPL.
-     */
-    movq 144(%rsp), %rax   /* Load the saved CS value from the stack */
-    andq $3, %rax          /* Isolate the RPL (Requested Privilege Level) bits */
-    cmpq $3, %rax          /* Compare RPL with 3 (user mode) */
-    je .exception_from_user_mode
+    movq %rsp, %rdi          /* rdi = registers_t* */
+    call isr_handler         /* isr_handler(regs) */
 
-    /* ====================
-     * Exception from KERNEL MODE (CPL=0)
-     * ====================
-     * CPU did NOT push user SS and RSP.
-     * Therefore, the saved RIP is at offset 136, and CS at 144.
-     * Offsets from RSP (after SAVE_REGS):
-     *   120 : Vector Number
-     *   128 : Error Code
-     *   136 : RIP
-     *   144 : CS
-     *   152 : RFLAGS
-     */
-    movq 120(%rsp), %rdi    /* First argument: Vector Number */
-    movq 128(%rsp), %rsi    /* Second argument: Error Code */
-    movq 136(%rsp), %rdx    /* Third argument: RIP */
-    movq 144(%rsp), %rcx    /* Fourth argument: CS */
-    jmp .call_c_handler
-
-.exception_from_user_mode:
-    /* ====================
-     * Exception from USER MODE (CPL=3)
-     * ====================
-     * CPU pushed user SS and RSP.
-     * Therefore, the saved RIP is at offset 136, and CS at 144.
-     * (Note: The offsets are the same as in the kernel case in this layout,
-     *  because the optional words are at higher addresses: 160 and 168).
-     * Offsets from RSP (after SAVE_REGS):
-     *   120 : Vector Number
-     *   128 : Error Code
-     *   136 : RIP
-     *   144 : CS
-     *   152 : RFLAGS
-     *   160 : User RSP
-     *   168 : User SS
-     */
-    movq 120(%rsp), %rdi    /* First argument: Vector Number */
-    movq 128(%rsp), %rsi    /* Second argument: Error Code */
-    movq 136(%rsp), %rdx    /* Third argument: RIP */
-    movq 144(%rsp), %rcx    /* Fourth argument: CS */
-
-.call_c_handler:
-    /* Call the C exception handler: isr_handler(vector, error_code, rip, cs) */
-    call isr_handler
-
-    /* Restore kernel data segments */
-    movw $0x10, %ax
+    /* Restore caller segments (for non-fatal return) */
+    movw $0x23, %ax
     movw %ax, %ds
     movw %ax, %es
     movw %ax, %fs
     movw %ax, %gs
 
     RESTORE_REGS
-    addq $16, %rsp   /* Remove Error Code and Vector Number from the stack */
+    addq $16, %rsp           /* discard int_no + err_code */
     sti
     iretq
 
 /* ============================================================================
- * External References (C Functions)
- * ============================================================================
- */
-/* These C functions must be defined elsewhere in the kernel. */
-.extern isr_handler      /* Handles all CPU exceptions (0-31) */
-.extern syscall_handler  /* Handles int 0x80 system calls */
+ * syscall_stub  (int 0x80)
+ *
+ * User-space calling convention:
+ *   rax = syscall number
+ *   rbx = arg1
+ *   rcx = arg2
+ *   rdx = arg3
+ *
+ * C signature:
+ *   long syscall_handler(registers_t *regs,
+ *                        uint64_t num, uint64_t arg1,
+ *                        uint64_t arg2, uint64_t arg3)
+ *
+ * After SAVE_REGS the saved-register offsets from RSP are:
+ *   rax @ [RSP+112]   rbx @ [RSP+104]
+ *   rcx @ [RSP+ 96]   rdx @ [RSP+ 88]
+ * ============================================================================ */
+syscall_stub:
+    SAVE_REGS
+
+    movw $0x10, %ax
+    movw %ax, %ds
+    movw %ax, %es
+    movw %ax, %fs
+    movw %ax, %gs
+
+    movq %rsp,       %rdi    /* arg0: registers_t* */
+    movq 112(%rsp),  %rsi    /* arg1: num  (saved rax) */
+    movq 104(%rsp),  %rdx    /* arg2: arg1 (saved rbx) */
+    movq  96(%rsp),  %rcx    /* arg3: arg2 (saved rcx) */
+    movq  88(%rsp),  %r8     /* arg4: arg3 (saved rdx) */
+
+    call syscall_handler
+
+    /* Write return value back into saved rax so caller sees it */
+    movq %rax, 112(%rsp)
+
+    movw $0x23, %ax
+    movw %ax, %ds
+    movw %ax, %es
+    movw %ax, %fs
+    movw %ax, %gs
+
+    RESTORE_REGS
+    addq $16, %rsp
+    sti
+    iretq

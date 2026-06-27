@@ -25,7 +25,7 @@
 #define IPC_MAX_DATA_SIZE   4096
 #define IPC_MAX_QUEUE_SIZE  16
 
-#define ECLIB_OK                    0
+#define IPC_OK                    0
 #define ECLIB_IPC_TIMEOUT          -1
 #define ECLIB_IPC_SERVICE_UNAVAIL  -2
 #define ECLIB_IPC_PERM_DENIED      -3

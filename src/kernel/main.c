@@ -21,8 +21,8 @@
 
 extern void gdt_init(void);
 extern void enable_syscall_mechanism(void);  /* SYSCALL/SYSRET support */
-#ifndef ECLIB_OK
-#define ECLIB_OK 0
+#ifndef IPC_OK
+#define IPC_OK 0
 #endif
 void kernel_main(void* boot_info) {
     /* Interrupts are disabled on entry from _start */

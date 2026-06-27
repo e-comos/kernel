@@ -461,6 +461,103 @@ int sprintf(char* buf, const char* format, ...) {
     return pos;
 }
 
+int snprintf(char* buf, size_t size, const char* format, ...) {
+    int pos = 0;
+    
+    va_list args;
+    va_start(args, format);
+    
+    while (*format && pos < (int)size - 1) {
+        if (*format != '%') {
+            format_putc(buf, &pos, (int)size, *format);
+            format++;
+            continue;
+        }
+        
+        format++; /* Skip '%' */
+        
+        switch (*format) {
+            case 'd': {
+                int val = va_arg(args, int);
+                char temp[16];
+                int i = 0;
+                int is_negative = 0;
+                
+                if (val < 0) {
+                    is_negative = 1;
+                    val = -val;
+                }
+                
+                /* Convert to string */
+                do {
+                    temp[i++] = '0' + (val % 10);
+                    val /= 10;
+                } while (val > 0);
+                
+                if (is_negative) {
+                    temp[i++] = '-';
+                }
+                
+                /* Reverse and copy */
+                for (int j = i - 1; j >= 0; j--) {
+                    format_putc(buf, &pos, (int)size, temp[j]);
+                }
+                break;
+            }
+            
+            case 's': {
+                char* str = va_arg(args, char*);
+                while (*str) {
+                    format_putc(buf, &pos, (int)size, *str);
+                    str++;
+                }
+                break;
+            }
+            
+            case 'c': {
+                char c = (char)va_arg(args, int);
+                format_putc(buf, &pos, (int)size, c);
+                break;
+            }
+            
+            case 'x': {
+                unsigned int val = va_arg(args, unsigned int);
+                char hex[] = "0123456789abcdef";
+                char temp[9];
+                int i = 0;
+                
+                do {
+                    temp[i++] = hex[val & 0xF];
+                    val >>= 4;
+                } while (val > 0);
+                
+                /* Pad to 8 digits */
+                while (i < 8) {
+                    temp[i++] = '0';
+                }
+                
+                /* Reverse and copy */
+                for (int j = i - 1; j >= 0; j--) {
+                    format_putc(buf, &pos, (int)size, temp[j]);
+                }
+                break;
+            }
+            
+            default:
+                format_putc(buf, &pos, (int)size, '%');
+                format_putc(buf, &pos, (int)size, *format);
+                break;
+        }
+        
+        format++;
+    }
+    
+    buf[pos] = '\0';
+    va_end(args);
+    
+    return pos;
+}
+
 /* ================================================================
  * Character classification functions
  * ================================================================ */

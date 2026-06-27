@@ -18,6 +18,7 @@
 
 #include <stdint.h>
 #include <kernel/printkit/print.h>
+#include <kernel/percpu.h>
 
 /* Model Specific Register (MSR) addresses for SYSCALL/SYSRET */
 #define MSR_EFER    0xC0000080  /* Extended Feature Enable Register */
@@ -77,8 +78,18 @@ static uint64_t read_msr(uint32_t msr) {
  * - LSTAR register to point to our syscall entry handler
  * - SFMASK to control which RFLAGS bits are cleared during SYSCALL
  */
+/* Kernel stack for syscall (8KB aligned) */
+static uint8_t syscall_kernel_stack[8192] __attribute__((aligned(16)));
+
 void enable_syscall_mechanism(void) {
     print_str("SYSCALL: Initializing SYSCALL/SYSRET mechanism...\n", 0x0A);
+    
+    /* Initialize per-CPU data structure */
+    percpu_init();
+    
+    /* Set kernel stack pointer in per-CPU data */
+    percpu_t *pcpu = percpu_get();
+    pcpu->kernel_rsp = (uint64_t)(uintptr_t)(syscall_kernel_stack + sizeof(syscall_kernel_stack));
     
     /* Step 1: Enable SYSCALL/SYSRET extensions in EFER */
     uint64_t efer_value = read_msr(MSR_EFER);

@@ -14,7 +14,7 @@
 #include <kernel/boot.h>
 #include <kernel/printkit/print.h>
 #include <stdint.h>
-#include <string.h>
+#include <klibc/string.h>
 
 /* ------------------------------------------------------------------ */
 /* Page Fault Error Codes                                              */
@@ -510,45 +510,51 @@ void mm_free_pages(void *pages, uint32_t count) {
 /* ------------------------------------------------------------------ */
 /* mm_map_page                                                         */
 /* ------------------------------------------------------------------ */
-int mm_map_page(uint64_t vaddr, uint32_t paddr, uint32_t flags) {
+int mm_map_page(uint64_t vaddr, uint64_t paddr, uint32_t flags) {
+    print_str("mm_map_page called: vaddr=0x", 0x0E);
+    print_hex(vaddr, 0x0E);
+    print_str("\n", 0x0E);
+    
     if (!page_tables_ready)
         return -1;
 
-    uint32_t pd_idx  = (uint32_t)((vaddr >> 21) & 0x1FFu); /* PD index (2 MB granule) */
-    uint32_t pt_idx  = (uint32_t)((vaddr >> 12) & 0x1FFu); /* PT index */
+    uint64_t pml4_idx = (vaddr >> 39) & 0x1FF;
+    uint64_t pdp_idx  = (vaddr >> 30) & 0x1FF;
+    uint64_t pd_idx   = (vaddr >> 21) & 0x1FF;
+    uint64_t pt_idx   = (vaddr >> 12) & 0x1FF;
 
-    if (pd_idx >= NUM_PTS) {
-        /* Need to expand page tables - for now, fail */
-        return -1;
+    uint64_t *cur = pml4;
+
+    if (!(cur[pml4_idx] & PTE_PRESENT)) {
+        void *new_table = mm_alloc_page();
+        if (!new_table) return -1;
+        cur[pml4_idx] = (uint64_t)(uintptr_t)new_table | PTE_PRESENT | PTE_WRITABLE | PTE_USER;
     }
+    uint64_t *pdp = (uint64_t *)(uintptr_t)(cur[pml4_idx] & ~0xFFFULL);
 
-    /* Check if page is already mapped and log if so */
-    if (pt[pd_idx][pt_idx] & PTE_PRESENT) {
-        uint32_t old_phys = (uint32_t)(pt[pd_idx][pt_idx] & ~0xFFFu);
-        print_str("  MM: WARNING: Page 0x", 0x0E);
-        print_hex(vaddr, 0x0E);
-        print_str(" already mapped to 0x", 0x0E);
-        print_hex(old_phys, 0x0E);
-        print_str(", remapping...\n", 0x0E);
-        
-        /* Flush TLB entry for old mapping */
-        __asm__ volatile("invlpg (%0)" : : "r"((uintptr_t)vaddr) : "memory");
+    if (!(pdp[pdp_idx] & PTE_PRESENT)) {
+        void *new_table = mm_alloc_page();
+        if (!new_table) return -1;
+        pdp[pdp_idx] = (uint64_t)(uintptr_t)new_table | PTE_PRESENT | PTE_WRITABLE | PTE_USER;
     }
+    uint64_t *pd = (uint64_t *)(uintptr_t)(pdp[pdp_idx] & ~0xFFFULL);
 
-    uint64_t entry = (uint64_t)paddr | PTE_PRESENT;
+    if (!(pd[pd_idx] & PTE_PRESENT)) {
+        void *new_table = mm_alloc_page();
+        if (!new_table) return -1;
+        pd[pd_idx] = (uint64_t)(uintptr_t)new_table | PTE_PRESENT | PTE_WRITABLE | PTE_USER;
+    }
+    uint64_t *pt = (uint64_t *)(uintptr_t)(pd[pd_idx] & ~0xFFFULL);
+
+    uint64_t entry = (paddr & ~0xFFFULL) | PTE_PRESENT;
     if (flags & MM_FLAG_WRITE) entry |= PTE_WRITABLE;
     if (flags & MM_FLAG_USER)  entry |= PTE_USER;
-    if (flags & MM_FLAG_DEVICE) {
-        entry |= PTE_PCD;  /* Cache disable for device memory */
-    } else if (flags & MM_FLAG_CACHED) {
-        /* Normal cached memory - no special flags needed */
-    }
+    if (flags & MM_FLAG_DEVICE) entry |= PTE_PCD;
     if (flags & MM_FLAG_GLOBAL) entry |= PTE_GLOBAL;
 
-    pt[pd_idx][pt_idx] = entry;
-
-    /* Invalidate TLB entry */
+    pt[pt_idx] = entry;
     __asm__ volatile("invlpg (%0)" : : "r"((uintptr_t)vaddr) : "memory");
+
     return 0;
 }
 
@@ -558,11 +564,25 @@ int mm_map_page(uint64_t vaddr, uint32_t paddr, uint32_t flags) {
 int mm_unmap_page(uint64_t vaddr) {
     if (!page_tables_ready)
         return -1;
-    uint32_t pd_idx = (uint32_t)((vaddr >> 21) & 0x1FFu);
-    uint32_t pt_idx = (uint32_t)((vaddr >> 12) & 0x1FFu);
-    if (pd_idx >= NUM_PTS)
+
+    uint64_t pml4_idx = (vaddr >> 39) & 0x1FF;
+    uint64_t pdp_idx  = (vaddr >> 30) & 0x1FF;
+    uint64_t pd_idx   = (vaddr >> 21) & 0x1FF;
+    uint64_t pt_idx   = (vaddr >> 12) & 0x1FF;
+
+    uint64_t *pdp = (uint64_t *)(uintptr_t)(pml4[pml4_idx] & ~0xFFFULL);
+    if (!(pml4[pml4_idx] & PTE_PRESENT))
         return -1;
-    pt[pd_idx][pt_idx] = 0;
+
+    uint64_t *pd = (uint64_t *)(uintptr_t)(pdp[pdp_idx] & ~0xFFFULL);
+    if (!(pdp[pdp_idx] & PTE_PRESENT))
+        return -1;
+
+    uint64_t *pt = (uint64_t *)(uintptr_t)(pd[pd_idx] & ~0xFFFULL);
+    if (!(pd[pd_idx] & PTE_PRESENT))
+        return -1;
+
+    pt[pt_idx] = 0;
     __asm__ volatile("invlpg (%0)" : : "r"((uintptr_t)vaddr) : "memory");
     return 0;
 }

@@ -1,26 +1,16 @@
 /*
-    E-com_os Kernel - Print Utility
-    Copyright (C) 2025,2026  Saladin5101
-
-    This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU Affero General Public License as published
-    by the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU Affero General Public License for more details.
-
-    You should have received a copy of the GNU Affero General Public License
-    along with this program.  If not, see <https://www.gnu.org/licenses/>.
-*/
+ * print.h - E-comOS Kernel Print Utility (Extended with paging and keyboard)
+ *
+ * Copyright (C) 2025,2026  Saladin5101
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ */
 
 #ifndef KERNEL_PRINT_H
 #define KERNEL_PRINT_H
 
 #include <stdint.h>
 
+/* Color constants */
 #define COLOR_BLACK         0x0
 #define COLOR_BLUE          0x1
 #define COLOR_GREEN         0x2
@@ -40,10 +30,24 @@
 
 #define VGA_COLOR(fg, bg) ((bg << 4) | fg)
 
+/* Basic VGA output functions (unchanged) */
 void clear_screen(uint8_t color);
 void print_char(char c, uint8_t color);
 void print_str(const char *str, uint8_t color);
 void print_num(uint32_t num, uint8_t color);
 void print_hex(uint32_t num, uint8_t color);
+
+/* Extended 64-bit printing (new) */
+void print_hex64(uint64_t value, uint8_t color);
+void print_num64(uint64_t value, uint8_t color);
+
+/* Paged output functions (pause every 24 lines, wait for key) */
+void paged_print_str(const char *str, uint8_t color);
+void paged_print_hex64(uint64_t value, uint8_t color);
+void paged_print_num64(uint64_t value, uint8_t color);
+void reset_paging_counter(void);
+
+/* Keyboard polling (returns ' ' or 'q', others 0) */
+char poll_keyboard(void);
 
 #endif

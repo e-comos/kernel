@@ -23,113 +23,107 @@
  *
  * SYSCALL instruction behavior:
  * - Saves user RIP to RCX register
- * - Saves user RFLAGS to R11 register  
+ * - Saves user RFLAGS to R11 register
  * - Jumps to address in MSR_LSTAR register
  * - Loads kernel CS from STAR[47:32] into CS (with RPL forced to 0)
  * - Clears IF and TF flags in RFLAGS (due to SFMASK configuration)
+ * - Does NOT change RSP (still points to user stack!)
  *
- * Register state when this handler is entered:
- * - RAX = system call number (from user)
- * - RDI = first argument (from user) 
- * - RSI = second argument (from user)
- * - RDX = third argument (from user)
- * - R10 = fourth argument (from user R8 - SYSCALL uses R10 instead of RCX for 4th param)
- * - R8 = fifth argument (from user R9)
- * - R9 = sixth argument (from user R10)
- * - RCX = return address (user RIP saved by CPU, was originally in user RCX)
- * - R11 = user RFLAGS (saved by CPU, was originally in user R11)
- * - RBX, RBP, R12-R15 = preserved from user context (not touched by SYSCALL)
- *
- * The existing syscall_handler expects: long syscall_handler(uint32_t num, uint32_t arg1, uint32_t arg2, uint32_t arg3)
- * This is a standard C function that follows System V ABI calling convention:
- * - RDI = first parameter (num)
- * - RSI = second parameter (arg1) 
- * - RDX = third parameter (arg2)
- * - RCX = fourth parameter (arg3)
- *
- * So we need to transform:
- * - RAX (syscall number) → RDI (first param to syscall_handler)
- * - RDI (first arg from user) → RSI (second param to syscall_handler)
- * - RSI (second arg from user) → RDX (third param to syscall_handler)  
- * - RDX (third arg from user) → RCX (fourth param to syscall_handler)
+ * Per-CPU data structure (accessed via GS base):
+ *   Offset 0: kernel_rsp (kernel stack pointer)
+ *   Offset 8: user_rsp (saved user stack pointer)
  */
+
 .globl syscall_entry
 .type syscall_entry, @function
 syscall_entry:
-    /* Save all general-purpose registers that might be modified during the call */
-    pushq %rax    /* Save RAX (syscall number) */
-    pushq %rcx    /* Save RCX (user return address) */
-    pushq %rdx    /* Save RDX (third argument from user) */
-    pushq %rsi    /* Save RSI (second argument from user) */
-    pushq %rdi    /* Save RDI (first argument from user) */
-    pushq %r8     /* Save R8 (fifth argument from user) */
-    pushq %r9     /* Save R9 (sixth argument from user) */
-    pushq %r10    /* Save R10 (fourth argument from user) */
-    pushq %r11    /* Save R11 (user RFLAGS) */
-    
-    /* TODO: Stack switching - In a complete implementation, we would load the
-     * current thread's kernel stack pointer here. For now, we'll assume
-     * we're already on a suitable kernel stack, but this is unsafe in a
-     * multi-threaded environment.
-     * 
-     * In a real implementation, this would involve:
-     * 1. Reading the current thread/task structure
-     * 2. Loading its kernel stack pointer (from TSS or task structure)
-     * 3. Switching to that kernel stack
+    /*
+     * Step 1: Swap GS base
+     * User mode: GS base = user GS base (if any)
+     * Kernel mode: GS base = per-CPU data structure
      */
-    
-    /* Align stack to 16-byte boundary before calling C function.
-     * After pushing 8 registers (64 bytes), we subtract 8 to align properly
-     * for the function call (which pushes 8 bytes), maintaining 16-byte alignment.
+    swapgs
+
+    /*
+     * Step 2: Save user RSP and switch to kernel stack
+     * At this point, RSP still points to user stack!
      */
-    subq $8, %rsp
-    
-    /* Prepare arguments for syscall_handler call:
-     * syscall_handler(uint32_t num, uint32_t arg1, uint32_t arg2, uint32_t arg3)
-     * 
-     * The x86-64 System V ABI for a function with 4 integer parameters:
-     * - RDI = first parameter
-     * - RSI = second parameter  
-     * - RDX = third parameter
-     * - RCX = fourth parameter
-     * 
-     * We need to map from current state (after saving registers):
-     * - 56(%rsp) = original RAX (syscall number)
-     * - 48(%rsp) = original RDI (first user argument) 
-     * - 40(%rsp) = original RSI (second user argument)
-     * - 32(%rsp) = original RDX (third user argument)
+    movq    %rsp, %gs:8       /* Save user RSP to per-CPU (offset 8) */
+    movq    %gs:0, %rsp       /* Load kernel RSP from per-CPU (offset 0) */
+
+    /*
+     * Step 3: Save registers on kernel stack
+     * Save user state for syscall_handler and later restoration
      */
-    movq 56(%rsp), %rdi    /* First param: syscall number */
-    movq 48(%rsp), %rsi    /* Second param: first argument from user */
-    movq 40(%rsp), %rdx    /* Third param: second argument from user */
-    movq 32(%rsp), %rcx    /* Fourth param: third argument from user */
-    
-    /* Call the existing syscall_handler function */
-    call syscall_handler
-    
-    /* Restore stack alignment */
-    addq $8, %rsp
-    
-    /* Save the return value from syscall_handler (currently in RAX) */
-    pushq %rax
-    
-    /* Restore all previously saved general-purpose registers */
-    popq %r11     /* Restore original R11 (user RFLAGS) */
-    popq %r10     /* Restore original R10 */
-    popq %r9      /* Restore original R9 */
-    popq %r8      /* Restore original R8 */
-    popq %rdi     /* Restore original RDI */
-    popq %rsi     /* Restore original RSI */
-    popq %rdx     /* Restore original RDX */
-    popq %rcx     /* Restore original RCX (user return address) */
-    popq %rax     /* Restore original RAX (discarded, return value is in current RAX) */
-    
-    /* SYSRET instruction returns to user mode:
-     * - Jumps to address in RCX (our user return address)
-     * - Restores RFLAGS from R11 
-     * - Uses CS from STAR[63:48] with RPL=3 (user code segment)
-     * - RAX contains the return value to user space
+    pushq   %rax                /* System call number */
+    pushq   %rcx                /* User RIP (saved by SYSCALL) */
+    pushq   %rdx                /* Arg3 */
+    pushq   %rsi                /* Arg2 */
+    pushq   %rdi                /* Arg1 */
+    pushq   %r8                 /* Arg5 */
+    pushq   %r9                 /* Arg6 */
+    pushq   %r10                /* Arg4 (SYSCALL uses R10 instead of RCX) */
+    pushq   %r11                /* User RFLAGS (saved by SYSCALL) */
+    pushq   %rbx                /* Preserve */
+    pushq   %rbp                /* Preserve */
+    pushq   %r12                /* Preserve */
+    pushq   %r13                /* Preserve */
+    pushq   %r14                /* Preserve */
+    pushq   %r15                /* Preserve */
+
+    /*
+     * Step 4: Set up arguments for syscall_handler
+     * System V ABI: RDI=num, RSI=arg1, RDX=arg2, RCX=arg3
      */
+    movq    15*8(%rsp), %rdi    /* Syscall number from stack */
+    movq    11*8(%rsp), %rsi    /* Original RDI (arg1) */
+    movq    10*8(%rsp), %rdx    /* Original RSI (arg2) */
+    movq    9*8(%rsp), %rcx     /* Original RDX (arg3) */
+
+    /*
+     * Step 5: Call C syscall handler
+     */
+    call    syscall_handler
+
+    /*
+     * Step 6: Save return value (will be restored to RAX later)
+     */
+    movq    %rax, %rbx          /* Save return value */
+
+    /*
+     * Step 7: Restore registers from kernel stack
+     */
+    popq    %r15
+    popq    %r14
+    popq    %r13
+    popq    %r12
+    popq    %rbp
+    popq    %rbx                /* This was pushed RBX, not return value */
+    popq    %r11                /* User RFLAGS */
+    popq    %r10                /* Arg4 */
+    popq    %r9                 /* Arg6 */
+    popq    %r8                 /* Arg5 */
+    popq    %rdi                /* Arg1 */
+    popq    %rsi                /* Arg2 */
+    popq    %rdx                /* Arg3 */
+    popq    %rcx                /* User RIP */
+    popq    %rax                /* Original RAX (syscall number) */
+
+    /*
+     * Step 8: Restore user RSP
+     */
+    movq    %gs:8, %rsp       /* Restore user RSP from per-CPU (offset 8) */
+
+    /*
+     * Step 9: Swap GS base back to user mode
+     */
+    swapgs
+
+    /*
+     * Step 10: Restore return value and execute SYSRET
+     * RAX = return value, RCX = user RIP, R11 = user RFLAGS
+     */
+    movq    %rbx, %rax          /* Return value */
     sysretq
 
 .size syscall_entry, .-syscall_entry
