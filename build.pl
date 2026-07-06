@@ -65,7 +65,8 @@ my $config = {
         '-mcmodel=large',              # Large code model for kernel
         '-Werror',                     # Treat warnings as errors
         '-pedantic',                   # Strict ISO C compliance
-	'-g',                          # To debug
+    '-g',                          # To debug
+    '-mno-red-zone',               # Disable red zone for interrupt handlers
         '-Iinclude',                   # Include search directory
     ],
     

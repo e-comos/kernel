@@ -81,26 +81,22 @@ static const char *exc_names[32] = {
 /* ---------------------------------------------------------------------------
  * Inline CR readers
  * --------------------------------------------------------------------------- */
-static inline uint64_t read_cr0(void)
-{
+static inline uint64_t read_cr0(void) {
     uint64_t v;
     __asm__ volatile("movq %%cr0, %0" : "=r"(v));
     return v;
 }
-static inline uint64_t read_cr2(void)
-{
+static inline uint64_t read_cr2(void) {
     uint64_t v;
     __asm__ volatile("movq %%cr2, %0" : "=r"(v));
     return v;
 }
-static inline uint64_t read_cr3(void)
-{
+static inline uint64_t read_cr3(void) {
     uint64_t v;
     __asm__ volatile("movq %%cr3, %0" : "=r"(v));
     return v;
 }
-static inline uint64_t read_cr4(void)
-{
+static inline uint64_t read_cr4(void) {
     uint64_t v;
     __asm__ volatile("movq %%cr4, %0" : "=r"(v));
     return v;
@@ -109,8 +105,7 @@ static inline uint64_t read_cr4(void)
 /* ---------------------------------------------------------------------------
  * Small formatting helpers
  * --------------------------------------------------------------------------- */
-static void pr_reg(const char *name, uint64_t val, uint8_t c)
-{
+static void pr_reg(const char *name, uint64_t val, uint8_t c) {
     print_str(name, c);
     print_str(": 0x", c);
     print_hex64(val, c);
@@ -119,8 +114,7 @@ static void pr_reg(const char *name, uint64_t val, uint8_t c)
 /* ---------------------------------------------------------------------------
  * decode_cs - print GDT selector fields and privilege level
  * --------------------------------------------------------------------------- */
-static void decode_cs(uint64_t cs)
-{
+static void decode_cs(uint64_t cs) {
     uint8_t c = 0x0A;
     print_str("CS Decode:\n", c);
     print_str("  Raw CS: 0x", c);
@@ -144,10 +138,21 @@ static void decode_cs(uint64_t cs)
  *   rdi = registers_t*  (RSP after SAVE_REGS)
  *
  * For fatal exceptions this function never returns (halts in place).
- * For #BP (3) and #OF (4) it returns so execution can resume.
+ * For #BP (3), #OF (4), and #PF (14) it returns so execution can resume.
  * --------------------------------------------------------------------------- */
-void isr_handler(registers_t *regs)
-{
+void isr_handler(registers_t *regs) {
+    /* ---- Page Fault handling (vector 14) --------------------------------- */
+    if (regs->int_no == 14) {
+        extern int handle_page_fault(uint64_t fault_addr, uint64_t error_code);
+        uint64_t fault_addr = read_cr2();
+        
+        if (handle_page_fault(fault_addr, regs->err_code)) {
+            /* Page fault handled successfully - return to resume execution */
+            return;
+        }
+        /* Page fault not handled - fall through to fatal error */
+    }
+
     /* ---- Error Code + RFLAGS header (red) -------------------------------- */
     print_str("Error Code: 0x", 0x0C);
     print_hex64(regs->err_code, 0x0C);
@@ -163,9 +168,19 @@ void isr_handler(registers_t *regs)
     pr_reg("CS", regs->cs, 0x0A);
     print_str("\n", 0x0A);
 
+    /* Only treat the saved RSP/SS as valid if the interrupted context
+     * was in user mode (RPL == 3). If the interrupt originated in
+     * kernel mode, the CPU does not push RSP/SS and those fields in
+     * the saved structure are not valid pointers but leftover memory.
+     */
+    int interrupted_in_user = (regs->cs & 0x3) == 0x3;
+
     pr_reg("RSP", regs->rsp, 0x0A);
     print_str("  ", 0x0A);
     pr_reg("SS", regs->ss, 0x0A);
+    if (!interrupted_in_user) {
+        print_str("  (no user stack - kernel mode interrupt)", 0x0A);
+    }
     print_str("\n", 0x0A);
 
     /* ---- General-purpose registers (green) ------------------------------- */
@@ -216,13 +231,17 @@ void isr_handler(registers_t *regs)
 
     /* ---- Stack near RSP, first 8 entries (white) ------------------------- */
     print_str("\nStack near RSP (first 8 entries):\n", 0x0F);
-    uint64_t *stack = (uint64_t *)(uintptr_t)regs->rsp;
-    for (int i = 0; i < 8; i++) {
-        print_str("  [RSP+", 0x0F);
-        print_num64((uint64_t)(i * 8), 0x0F);
-        print_str("] 0x", 0x0F);
-        print_hex64(stack[i], 0x0F);
-        print_str("\n", 0x0F);
+    if (interrupted_in_user) {
+        uint64_t *stack = (uint64_t *)(uintptr_t)regs->rsp;
+        for (int i = 0; i < 8; i++) {
+            print_str("  [RSP+", 0x0F);
+            print_num64((uint64_t)(i * 8), 0x0F);
+            print_str("] 0x", 0x0F);
+            print_hex64(stack[i], 0x0F);
+            print_str("\n", 0x0F);
+        }
+    } else {
+        print_str("  (skipped - interrupt came from kernel mode)\n", 0x0F);
     }
 
     /* ---- CS decode (green) ----------------------------------------------- */
