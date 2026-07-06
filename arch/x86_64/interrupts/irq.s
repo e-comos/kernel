@@ -73,11 +73,12 @@ irq_common_stub:
     movw %ax, %fs
     movw %ax, %gs
 
-    # irq_handler takes a struct registers by value — pass int_no as arg
-    movq 120(%rsp), %rdi    # int_no (after 15 * 8 = 120 bytes of saved regs)
+    /* Pass int_no to handler (after 15*8 saved regs + 16 stub push - 8 call) */
+    movq 128(%rsp), %rdi
 
     call irq_handler_asm_shim
 
+    /* Restore segment selectors (already kernel, but keep consistent) */
     movw $0x10, %ax
     movw %ax, %ds
     movw %ax, %es
@@ -85,6 +86,18 @@ irq_common_stub:
     movw %ax, %gs
 
     RESTORE_REGS
-    addq $16, %rsp
-    sti
+    /* Check CS.RPL to determine if interrupt came from user or kernel mode */
+    /* After RESTORE_REGS, stack has: err_code(8) + int_no(8) + rip(8) + cs(8) + rflags(8) + (rsp)(8) + (ss)(8) */
+    /* CS is at RSP+24 */
+    movq 24(%rsp), %rax
+    testw $3, %ax           /* Check RPL (bits 0-1) */
+    jnz 2f                  /* If RPL=3 (user mode), add 56 */
+    /* Kernel mode: add 40 (int_no + err_code + rip + cs + rflags) */
+    addq $40, %rsp
+    jmp 3f
+2:
+    /* User mode: add 56 (int_no + err_code + rip + cs + rflags + rsp + ss) */
+    addq $56, %rsp
+3:
     iretq
+

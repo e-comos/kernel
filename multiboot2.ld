@@ -9,7 +9,7 @@
  * 1. The Multiboot2 header must be at the very beginning of the file
  * 2. Entry point (_start) should be immediately after the header
  * 3. Text section should follow immediately without large gaps
- * 4. Symbols _kernelStart and _kernelEnd are provided for C code
+ * 4. Symbols _kernel_start and _kernel_end are provided for C code
  * ============================================================================ */
 
 /* Output format: 64-bit ELF for x86_64 architecture */
@@ -23,7 +23,7 @@ SECTIONS
     . = 0x100000;
     
     /* Symbol for kernel start address (used by C code) */
-    _kernelStart = .;
+    _kernel_start = .;
     
     /* Multiboot2 header must be at the very beginning */
     /* ALIGN(8) ensures 8-byte alignment as required by Multiboot2 spec */
@@ -65,7 +65,7 @@ SECTIONS
     }
     
     /* Symbol for kernel end address (used by C code) */
-    _kernelEnd = .;
+    _kernel_end = .;
     
     /* Discard debugging and unnecessary sections */
     /DISCARD/ : {

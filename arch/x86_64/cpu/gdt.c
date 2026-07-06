@@ -1,5 +1,5 @@
 /*
-    E-com_os Kernel - Global Descriptor Table + TSS (64-bit)
+    E-comOS Kernel - Global Descriptor Table + TSS (64-bit)
     Copyright (C) 2025,2026  Saladin5101
 
     GDT layout:
@@ -80,7 +80,8 @@ static tss_descriptor tss_desc;
 static gdt_ptr64    gdtp;
 static Tss64       tss;
 
-static uint8_t kernel_stack[4096] __attribute__((aligned(16)));
+static uint8_t kernel_stack[65536] __attribute__((aligned(16)));
+static uint8_t interrupt_stack[32768] __attribute__((aligned(16)));
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                            */
@@ -131,6 +132,7 @@ void gdt_init(void) {
 
     /* TSS */
     tss.rsp0      = (uint64_t)(uintptr_t)(kernel_stack + sizeof(kernel_stack));
+    tss.ist[0]    = (uint64_t)(uintptr_t)(interrupt_stack + sizeof(interrupt_stack));
     tss.iomap_base = (uint16_t)sizeof(Tss64); /* no I/O bitmap */
 
     tss_desc_set((uint64_t)(uintptr_t)&tss, (uint32_t)(sizeof(Tss64) - 1u));

@@ -22,42 +22,45 @@
 .type asm_switch_to_user_mode, @function
 
 asm_switch_to_user_mode:
-    /* Disable interrupts during the critical switch */
     cli
 
-    /* Save kernel stack pointer for potential debugging (not used further) */
-    pushq %rbx
-    movq %rsp, %rbx
+    /* Align user RSP to 16-byte boundary (ABI requirement) */
+    andq    $~0xF, %rsi
 
-    /* Align user stack pointer to 16-byte boundary (ABI requirement) */
-    andq $~0xF, %rsi
+    /* Switch data segment registers to user selectors (0x23, RPL=3) */
+    movw    $0x23, %ax
+    movw    %ax, %ds
+    movw    %ax, %es
+    movw    %ax, %fs
+    movw    %ax, %gs
 
-    /* Load user data segment selectors into data registers */
-    movw $0x23, %ax
-    movw %ax, %ds
-    movw %ax, %es
-    movw %ax, %fs
-    movw %ax, %gs
+    /*
+     * Build iretq frame on the current (kernel) stack.
+     * iretq pops in this order: RIP, CS, RFLAGS, RSP, SS.
+     * Push in reverse order so the top of stack is RIP.
+     *
+     * RFLAGS value: 0x3202
+     *   bit  1 (Reserved=1) : always 1
+     *   bit  9 (IF=1)       : enable interrupts in user mode
+     *   bit 12-13 (IOPL=3)  : I/O privilege level 3 (user can do port I/O)
+     */
 
-    /* Build the iretq frame (push in reverse order of popping) */
+    /* 5. SS */
+    pushq   $0x23
 
-    /* 1. SS: user stack segment selector (RPL=3) */
-    pushq $0x23
+    /* 4. RSP */
+    pushq   %rsi
 
-    /* 2. RSP: aligned user stack pointer */
-    pushq %rsi
+    /* 3. RFLAGS: IF=1, IOPL=3, Reserved=1 */
+    pushq   $0x3202
 
-    /* 3. RFLAGS: current flags with IF=0, TF=0, RF=0 */
-    pushfq
-    andq  $~(0x200 | 0x100 | 0x10000), (%rsp) /* Clear IF (bit 9), TF (bit 8), RF (bit 16) */
+    /* 2. CS */
+    pushq   $0x1B
 
-    /* 4. CS: user code segment selector (RPL=3) */
-    pushq $0x1B
+    /* 1. RIP */
+    pushq   %rdi
 
-    /* 5. RIP: user entry point */
-    pushq %rdi
-
-    /* Atomic switch to user mode */
+    /* Atomically restore RIP/CS/RFLAGS/RSP/SS and switch to ring 3 */
     iretq
 
     /* Never reached – just in case, halt forever */

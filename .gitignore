@@ -14,3 +14,4 @@ release/
 */*.fd
 */*/*.iso
 */*.bin
+tools/*

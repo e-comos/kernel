@@ -177,8 +177,19 @@ isr_common_stub:
     movw %ax, %gs
 
     RESTORE_REGS
-    addq $16, %rsp           /* discard int_no + err_code */
-    sti
+    /* Check CS.RPL to determine if interrupt came from user or kernel mode */
+    /* After RESTORE_REGS, stack has: err_code(8) + int_no(8) + rip(8) + cs(8) + rflags(8) + (rsp)(8) + (ss)(8) */
+    /* CS is at RSP+24 */
+    movq 24(%rsp), %rax
+    testw $3, %ax           /* Check RPL (bits 0-1) */
+    jnz 2f                  /* If RPL=3 (user mode), add 56 */
+    /* Kernel mode: add 40 (int_no + err_code + rip + cs + rflags) */
+    addq $40, %rsp
+    jmp 3f
+2:
+    /* User mode: add 56 (int_no + err_code + rip + cs + rflags + rsp + ss) */
+    addq $56, %rsp
+3:
     iretq
 
 /* ============================================================================
@@ -219,6 +230,9 @@ syscall_stub:
     /* Write return value back into saved rax so caller sees it */
     movq %rax, 112(%rsp)
 
+    /* Set IOPL=3 in saved RFLAGS (at RSP+152 after SAVE_REGS+int_no+err_code) */
+    orq  $0x3000, 152(%rsp)
+
     movw $0x23, %ax
     movw %ax, %ds
     movw %ax, %es
@@ -226,6 +240,17 @@ syscall_stub:
     movw %ax, %gs
 
     RESTORE_REGS
-    addq $16, %rsp
-    sti
+    /* Check CS.RPL to determine if interrupt came from user or kernel mode */
+    /* After RESTORE_REGS, stack has: err_code(8) + int_no(8) + rip(8) + cs(8) + rflags(8) + (rsp)(8) + (ss)(8) */
+    /* CS is at RSP+24 */
+    movq 24(%rsp), %rax
+    testw $3, %ax           /* Check RPL (bits 0-1) */
+    jnz 2f                  /* If RPL=3 (user mode), add 56 */
+    /* Kernel mode: add 40 (int_no + err_code + rip + cs + rflags) */
+    addq $40, %rsp
+    jmp 3f
+2:
+    /* User mode: add 56 (int_no + err_code + rip + cs + rflags + rsp + ss) */
+    addq $56, %rsp
+3:
     iretq

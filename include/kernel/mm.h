@@ -33,20 +33,31 @@
 #define PTE_PAT      (1u << 7)  /* Page Attribute Table */
 #define PTE_GLOBAL   (1u << 8)
 
-/* Higher-level mapping flags (translated to PTE flags by mmMapPage) */
-#define MM_FLAG_READ    (1u << 0)
-#define MM_FLAG_WRITE   (1u << 1)
-#define MM_FLAG_EXEC    (1u << 2)
-#define MM_FLAG_USER    (1u << 3)
-#define MM_FLAG_DEVICE  (1u << 4)  /* Non-cacheable */
-#define MM_FLAG_CACHED  (1u << 5)  /* Cacheable */
-#define MM_FLAG_GLOBAL  (1u << 6)  /* Global page */
 
-#define MM_FLAG_KERNEL_RW (MM_FLAG_READ | MM_FLAG_WRITE)
-#define MM_FLAG_USER_RO   (MM_FLAG_READ | MM_FLAG_USER)
-#define MM_FLAG_USER_RW   (MM_FLAG_READ | MM_FLAG_WRITE | MM_FLAG_USER)
-#define MM_FLAG_KERNEL_RX (MM_FLAG_READ | MM_FLAG_EXEC)
-#define MM_FLAG_USER_RX   (MM_FLAG_READ | MM_FLAG_EXEC | MM_FLAG_USER)
+/* ------------------------------------------------------------
+ * Physical page-table bit definitions (match x86-64 hardware)
+ * ------------------------------------------------------------ */
+#define MM_FLAG_PRESENT  (1u << 0)   /* Page present (required) */
+#define MM_FLAG_READ     (1u << 0)   /* Same as PRESENT; kept for compatibility */
+#define MM_FLAG_WRITE    (1u << 1)   /* Writable */
+#define MM_FLAG_USER     (1u << 2)   /* User accessible */
+#define MM_FLAG_PWT      (1u << 3)   /* Write-through */
+#define MM_FLAG_PCD      (1u << 4)   /* Cache disable */
+#define MM_FLAG_ACCESSED (1u << 5)   /* Accessed (set by CPU) */
+#define MM_FLAG_DIRTY    (1u << 6)   /* Dirty (set by CPU) */
+#define MM_FLAG_PAT      (1u << 7)   /* Page attribute table */
+#define MM_FLAG_GLOBAL   (1u << 8)   /* Global TLB entry */
+#define MM_FLAG_NX       (1ULL << 63) /* No-eXecute - set to disable execution */
+
+/* SECURE DATA PAGES (Execution Disabled) */
+#define MM_FLAG_KERNEL_RW  (MM_FLAG_PRESENT | MM_FLAG_WRITE | MM_FLAG_NX)
+#define MM_FLAG_USER_RO    (MM_FLAG_PRESENT | MM_FLAG_USER  | MM_FLAG_NX)
+#define MM_FLAG_USER_RW    (MM_FLAG_PRESENT | MM_FLAG_WRITE | MM_FLAG_USER | MM_FLAG_NX)
+
+/* SECURE CODE PAGES (Execution Allowed, NX=0) */
+#define MM_FLAG_KERNEL_RX  (MM_FLAG_PRESENT)                      
+#define MM_FLAG_USER_RX    (MM_FLAG_PRESENT | MM_FLAG_USER)       
+
 
 /* Page table structures */
 #define PT_ENTRIES  512u
@@ -109,9 +120,9 @@ void mm_free_pages(void *pages, uint32_t count);
 
 /*
  * mm_map_page — insert a vaddr→paddr mapping into the current page tables.
- * flags: combination of MM_FLAG_* constants.
+ * flags: combination of MM_FLAG_* constants (uint64_t to support NX bit).
  */
-int mm_map_page(uint64_t vaddr, uint64_t paddr, uint32_t flags);
+int mm_map_page(uint64_t vaddr, uint64_t paddr, uint64_t flags);
 int mm_unmap_page(uint64_t vaddr);
 
 /*

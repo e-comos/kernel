@@ -80,8 +80,8 @@ typedef struct {
  * Declared as arrays so taking their address gives the symbol value
  * without an extra indirection.
  */
-extern uint8_t _kernelStart[];
-extern uint8_t _kernelEnd[];
+extern uint8_t _kernel_start[];
+extern uint8_t _kernel_end[];
 
 typedef struct {
     uint64_t ebts_src;

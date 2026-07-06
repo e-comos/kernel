@@ -232,13 +232,18 @@ void isr_handler(registers_t *regs) {
     /* ---- Stack near RSP, first 8 entries (white) ------------------------- */
     print_str("\nStack near RSP (first 8 entries):\n", 0x0F);
     if (interrupted_in_user) {
-        uint64_t *stack = (uint64_t *)(uintptr_t)regs->rsp;
-        for (int i = 0; i < 8; i++) {
-            print_str("  [RSP+", 0x0F);
-            print_num64((uint64_t)(i * 8), 0x0F);
-            print_str("] 0x", 0x0F);
-            print_hex64(stack[i], 0x0F);
-            print_str("\n", 0x0F);
+        /* Validate user stack pointer before dereferencing it. */
+        if (regs->rsp >= 0x70000 && regs->rsp < 0x80000) {
+            uint64_t *stack = (uint64_t *)(uintptr_t)regs->rsp;
+            for (int i = 0; i < 8; i++) {
+                print_str("  [RSP+", 0x0F);
+                print_num64((uint64_t)(i * 8), 0x0F);
+                print_str("] 0x", 0x0F);
+                print_hex64(stack[i], 0x0F);
+                print_str("\n", 0x0F);
+            }
+        } else {
+            print_str("  (invalid user stack pointer, skipped)\n", 0x0F);
         }
     } else {
         print_str("  (skipped - interrupt came from kernel mode)\n", 0x0F);

@@ -3,14 +3,13 @@
     Handles transitions between kernel mode and user mode.
 */
 
-#include "user_space/user_mode.h"
-#include "kernel/boot.h"
-#include "kernel/mm.h"
-#include "kernel/arch/interrupts.h"
-#include "kernel/printkit/print.h"
-#include "kernel/debug.h"
+#include <user_space/user_mode.h>
+#include <kernel/boot.h>
+#include <kernel/mm.h>
+#include <kernel/arch/interrupts.h>
+#include <kernel/printkit/print.h>
+#include <kernel/debug.h>
 #include <stdint.h>
-
 
 
 /* GDT segment selectors for user mode */
@@ -80,6 +79,14 @@ void __attribute__((noreturn)) switch_to_user_mode(uintptr_t entry_point, uintpt
 /* --------------------------------------------------------------- */
 int load_init_service_to_user_mode(void) {
     print_str("Loading init-service to user mode...\n", 0x0F);
+    // I. Allocate a page for boot_info at 0x600000
+    void *boot_pa = mm_alloc_page();
+    if (!boot_pa) kernel_panic("OOM: boot_info page");
+
+    // II. Map 0x600000 to the allocated physical page with user read/write permissions
+    if (mm_map_page(0x600000ULL, (uintptr_t)boot_pa, MM_FLAG_KERNEL_RW) != 0) {
+        kernel_panic("Failed to map boot_info page at 0x600000");
+    }
 
     /* 1. Load init.bin to 0x400000 */
     uint8_t* init_src  = _binary_payload_init_bin_start;
@@ -93,8 +100,8 @@ int load_init_service_to_user_mode(void) {
     for (uint32_t p = 0; p < init_pages; p++) {
         void *pa = mm_alloc_page();
         if (!pa) kernel_panic("OOM: init.bin page");
-        mm_map_page((uint32_t)(INIT_LOAD_ADDR + p * PAGE_SIZE),
-                    (uint32_t)(uintptr_t)pa,
+        mm_map_page((INIT_LOAD_ADDR + p * PAGE_SIZE),
+                    (uintptr_t)pa,
                     MM_FLAG_USER_RX);
     }
 
@@ -115,8 +122,8 @@ int load_init_service_to_user_mode(void) {
         for (uint32_t p = 0; p < ebts_pages; p++) {
             void *pa = mm_alloc_page();
             if (!pa) kernel_panic("OOM: ebts.bin page");
-            mm_map_page((uint32_t)(EBTS_LOAD_ADDR + p * PAGE_SIZE),
-                        (uint32_t)(uintptr_t)pa,
+            mm_map_page((EBTS_LOAD_ADDR + p * PAGE_SIZE),
+                        (uintptr_t)pa,
                         MM_FLAG_USER_RX);
         }
         uint8_t* ebts_dst = (uint8_t*)EBTS_LOAD_ADDR;
@@ -151,13 +158,9 @@ int load_init_service_to_user_mode(void) {
         print_str("\n", 0x0F);
     }
 
-    /* 4. Write boot_info_t to 0x600000 */
-    {
-        void *boot_pa = mm_alloc_page();
-        if (!boot_pa) kernel_panic("OOM: boot_info page");
-        mm_map_page((uint32_t)BOOT_INFO_ADDR, (uint32_t)(uintptr_t)boot_pa, MM_FLAG_USER_RW);
-    }
-
+    /* 4. Write boot_info_t to 0x600000
+     * Note: 0x600000 is already mapped in mm_init, so we just write to it
+     */
     boot_info_t* binfo = (boot_info_t*)BOOT_INFO_ADDR;
     binfo->ebts_src  = (ebts_size > 0) ? EBTS_LOAD_ADDR : 0;
     binfo->ebts_size = ebts_size;

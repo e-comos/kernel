@@ -36,8 +36,8 @@
  * Index 4 (0x20): User data segment (with RPL=3 becomes 0x23)
  */
 #define KERNEL_CS   0x08        /* Kernel code segment (ring 0) */
-#define USER_CS     0x18        /* User code segment (ring 3 when RPL=3) */
-#define USER_DS     0x20        /* User data segment (ring 3 when RPL=3) */
+#define USER_CS     0x1B        /* User code segment (ring 3 when RPL=3) */
+#define USER_DS     0x23        /* User data segment (ring 3 when RPL=3) */
 
 /* Function prototype for the assembly syscall entry point */
 extern void syscall_entry(void);
@@ -69,34 +69,18 @@ static uint64_t read_msr(uint32_t msr) {
  * 
  * Configures the necessary MSRs to allow user programs to use the SYSCALL
  * instruction for entering kernel mode and SYSRET for returning to user mode.
- * This is required because some user programs (like init.bin) expect this
- * standard x86-64 mechanism to be available.
- * 
- * The function sets up:
- * - EFER.SCE to enable SYSCALL/SYSRET extensions
- * - STAR register to define target segments for SYSCALL
- * - LSTAR register to point to our syscall entry handler
- * - SFMASK to control which RFLAGS bits are cleared during SYSCALL
  */
-/* Kernel stack for syscall (8KB aligned) */
-static uint8_t syscall_kernel_stack[8192] __attribute__((aligned(16)));
-
 void enable_syscall_mechanism(void) {
     print_str("SYSCALL: Initializing SYSCALL/SYSRET mechanism...\n", 0x0A);
     
-    /* Initialize per-CPU data structure */
+    /* Initialize per-CPU data structure (including kernel stack) */
     percpu_init();
     
-    /* Set kernel stack pointer in per-CPU data */
+    /* Verify per-CPU data */
     percpu_t *pcpu = percpu_get();
-    pcpu->kernel_rsp = (uint64_t)(uintptr_t)(syscall_kernel_stack + sizeof(syscall_kernel_stack));
-    
-    print_str("  Kernel stack at 0x", 0x0A);
-    print_hex((uint32_t)(uintptr_t)syscall_kernel_stack, 0x0A);
-    print_str(", top at 0x", 0x0A);
+    print_str("  Kernel stack top at 0x", 0x0A);
     print_hex((uint32_t)pcpu->kernel_rsp, 0x0A);
     print_str("\n", 0x0A);
-    
     print_str("  Per-CPU data at 0x", 0x0A);
     print_hex((uint32_t)(uintptr_t)pcpu, 0x0A);
     print_str("\n", 0x0A);
@@ -114,8 +98,8 @@ void enable_syscall_mechanism(void) {
     /* Step 2: Configure STAR register
      * Bits 63:48: Selector for user code segment (with RPL forced to 3)
      * Bits 47:32: Selector for kernel code segment (with RPL forced to 0)
-     * Our layout: USER_CS=0x18, KERNEL_CS=0x08
-     * So STAR = (USER_CS << 16) | (KERNEL_CS << 32) = (0x18 << 16) | (0x08 << 32)
+     * Our layout: USER_CS=0x1B, KERNEL_CS=0x08
+     * So STAR = (USER_CS << 16) | (KERNEL_CS << 32) = (0x1B << 16) | (0x08 << 32)
      */
     uint64_t star_value = ((uint64_t)USER_CS << 16) | ((uint64_t)KERNEL_CS << 32);
     write_msr(MSR_STAR, star_value);

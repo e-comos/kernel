@@ -16,6 +16,10 @@
 #include <stdint.h>
 #include <klibc/string.h>
 
+/* Forward declarations */
+extern void idt_set_gate(uint8_t num, uint64_t base, uint16_t sel, uint8_t flags);
+extern void isr14(void);  /* Page fault handler from isr.s */
+
 /* ------------------------------------------------------------------ */
 /* Page Fault Error Codes                                              */
 /* ------------------------------------------------------------------ */
@@ -101,9 +105,8 @@ static inline int bitmap_test(uint32_t idx) {
     return (page_bitmap[idx >> 3] >> (idx & 7u)) & 1u;
 }
 
-/* Forward declarations for page fault handler functions */
+/* Forward declaration for page fault handler */
 int handle_page_fault(uint64_t fault_addr, uint64_t error_code);
-void page_fault_handler(uint64_t error_code);
 
 /* ------------------------------------------------------------------ */
 /* Kernel heap management                                              */
@@ -238,6 +241,7 @@ static void build_page_tables(void) {
     pdpt[0] = (uint64_t)(uintptr_t)pd | PTE_PRESENT | PTE_WRITABLE | PTE_USER;
 
     /* PD[i] → pt[i]  (each covers 2 MB) */
+    /* Initialize all PD entries: PD[0..7] point to PTs, others are 0 (will be created dynamically) */
     for (uint32_t i = 0; i < NUM_PTS; i++) {
         pd[i] = (uint64_t)(uintptr_t)pt[i] | PTE_PRESENT | PTE_WRITABLE | PTE_USER;
 
@@ -245,17 +249,22 @@ static void build_page_tables(void) {
         for (uint32_t j = 0; j < PT_ENTRIES; j++) {
             uint64_t phys = (uint64_t)i * PT_ENTRIES * PAGE_SIZE
                           + (uint64_t)j * PAGE_SIZE;
-            uint64_t flags = PTE_PRESENT | PTE_WRITABLE | PTE_USER;  /* TEMP: Make all pages user accessible for debugging */
+            uint64_t flags = PTE_PRESENT | PTE_WRITABLE | PTE_USER;
             
             /* Make kernel pages global */
-            if (phys >= 0x200000) {  /* Above 2MB mark for kernel */
+            if (phys >= 0x200000) {
                 flags |= PTE_GLOBAL;
             }
             
             pt[i][j] = phys | flags;
         }
     }
+    /* PD[8..511] remain 0 - they will be created dynamically by mm_map_page */
 
+    /* Pre-map pages for page table structures themselves (PML4, PDPT, PD, PT) */
+    /* These are at fixed addresses: pml4=0x..., pdpt=0x..., pd=0x..., pt=0x... */
+    /* Since they're already identity-mapped by the above code, we just ensure they're marked present */
+    
     page_tables_ready = 1;
 }
 
@@ -269,9 +278,9 @@ memory_status mm_init(boot_params *boot_params) {
     next_free_page = MAX_PAGES; /* sentinel: no free pages yet */
 
     /* Step 2: determine kernel image extent from linker symbols */
-    extern uint8_t _kernelStart[], _kernelEnd[];
-    uint64_t kern_start = (uint64_t)(uintptr_t)_kernelStart;
-    uint64_t kern_end   = (uint64_t)(uintptr_t)_kernelEnd;
+    extern uint8_t _kernel_start[], _kernel_end[];
+    uint64_t kern_start = (uint64_t)(uintptr_t)_kernel_start;
+    uint64_t kern_end   = (uint64_t)(uintptr_t)_kernel_end;
 
     /* Step 3: parse UEFI memory map or use fallback */
     if (!boot_params
@@ -377,7 +386,7 @@ find_first:
         
         /* Map the page into kernel heap space */
         if (mm_map_page(HEAP_START_VIRT + i * PAGE_SIZE,
-                       (uint32_t)(uintptr_t)page,
+                       (uintptr_t)page,
                        MM_FLAG_KERNEL_RW) != 0) {
             mm_free_page(page);
             print_str("MM: failed to map heap page ", 0x0C);
@@ -421,12 +430,29 @@ find_first:
     /* Register page fault handler in IDT */
     print_str("MM: Registering page fault handler...\n", 0x0A);
     extern void idt_set_gate(uint8_t num, uint64_t base, uint16_t sel, uint8_t flags);
-    extern void page_fault_handler(uint64_t error_code);
-    uint64_t handler_addr = (uint64_t)(uintptr_t)page_fault_handler;
+    /* Use the page fault handler from isr.c (isr14 -> isr_handler) */
+    uint64_t handler_addr = (uint64_t)(uintptr_t)isr14;
     idt_set_gate(14, handler_addr, 0x08, 0x8E);  /* Gate 14 = Page Fault */
     print_str("  Page fault handler registered at 0x", 0x0A);
     print_hex(handler_addr, 0x0A);
     print_str("\n", 0x0A);
+
+    /* Pre-map BOOT_INFO_ADDR (0x600000) for early use */
+    print_str("MM: Pre-mapping BOOT_INFO_ADDR at 0x600000...\n", 0x0A);
+    void *boot_info_page = mm_alloc_page();
+    if (!boot_info_page) {
+        print_str("MM: Failed to allocate boot_info page\n", 0x0C);
+        return MEMORY_ERROR_NOMEM;
+    }
+    /* Zero the page */
+    uint8_t *p = (uint8_t *)boot_info_page;
+    for (uint32_t i = 0; i < PAGE_SIZE; i++) p[i] = 0;
+    
+    if (mm_map_page(BOOT_INFO_ADDR, (uintptr_t)boot_info_page, MM_FLAG_KERNEL_RW) != 0) {
+        print_str("MM: Failed to map boot_info page at 0x600000\n", 0x0C);
+        return MEMORY_ERROR_NOMEM;
+    }
+    print_str("MM: Boot info page mapped at 0x600000\n", 0x0A);
 
     return MEMORY_SUCCESS;
 }
@@ -510,13 +536,31 @@ void mm_free_pages(void *pages, uint32_t count) {
 /* ------------------------------------------------------------------ */
 /* mm_map_page                                                         */
 /* ------------------------------------------------------------------ */
-int mm_map_page(uint64_t vaddr, uint64_t paddr, uint32_t flags) {
+int mm_map_page(uint64_t vaddr, uint64_t paddr, uint64_t flags) {
     print_str("mm_map_page called: vaddr=0x", 0x0E);
     print_hex(vaddr, 0x0E);
     print_str("\n", 0x0E);
-    
+
     if (!page_tables_ready)
         return -1;
+
+    /* Validate addresses */
+    if (vaddr & (PAGE_SIZE - 1)) {
+        print_str("MM: vaddr not aligned\n", 0x0C);
+        return -1;
+    }
+    if (paddr & (PAGE_SIZE - 1)) {
+        print_str("MM: paddr not aligned\n", 0x0C);
+        return -1;
+    }
+    if (vaddr >= PHYS_BASE + PHYS_SIZE) {
+        print_str("MM: vaddr out of range\n", 0x0C);
+        return -1;
+    }
+    if (paddr >= PHYS_BASE + PHYS_SIZE) {
+        print_str("MM: paddr out of range\n", 0x0C);
+        return -1;
+    }
 
     uint64_t pml4_idx = (vaddr >> 39) & 0x1FF;
     uint64_t pdp_idx  = (vaddr >> 30) & 0x1FF;
@@ -527,33 +571,82 @@ int mm_map_page(uint64_t vaddr, uint64_t paddr, uint32_t flags) {
 
     if (!(cur[pml4_idx] & PTE_PRESENT)) {
         void *new_table = mm_alloc_page();
-        if (!new_table) return -1;
+        if (!new_table) {
+            print_str("MM: failed to allocate PML4 entry table\n", 0x0C);
+            return -1;
+        }
+        /* Zero the new table */
+        uint64_t *tbl = (uint64_t *)(uintptr_t)new_table;
+        for (uint32_t i = 0; i < PT_ENTRIES; i++) tbl[i] = 0;
         cur[pml4_idx] = (uint64_t)(uintptr_t)new_table | PTE_PRESENT | PTE_WRITABLE | PTE_USER;
+        print_str("MM: allocated PML4 entry table at 0x", 0x0A);
+        print_hex((uintptr_t)new_table, 0x0A);
+        print_str("\n", 0x0A);
     }
     uint64_t *pdp = (uint64_t *)(uintptr_t)(cur[pml4_idx] & ~0xFFFULL);
 
     if (!(pdp[pdp_idx] & PTE_PRESENT)) {
         void *new_table = mm_alloc_page();
-        if (!new_table) return -1;
+        if (!new_table) {
+            print_str("MM: failed to allocate PDPT entry table\n", 0x0C);
+            return -1;
+        }
+        /* Zero the new table */
+        uint64_t *tbl = (uint64_t *)(uintptr_t)new_table;
+        for (uint32_t i = 0; i < PT_ENTRIES; i++) tbl[i] = 0;
         pdp[pdp_idx] = (uint64_t)(uintptr_t)new_table | PTE_PRESENT | PTE_WRITABLE | PTE_USER;
+        print_str("MM: allocated PDPT entry table at 0x", 0x0A);
+        print_hex((uintptr_t)new_table, 0x0A);
+        print_str("\n", 0x0A);
     }
     uint64_t *pd = (uint64_t *)(uintptr_t)(pdp[pdp_idx] & ~0xFFFULL);
 
     if (!(pd[pd_idx] & PTE_PRESENT)) {
         void *new_table = mm_alloc_page();
-        if (!new_table) return -1;
+        if (!new_table) {
+            print_str("MM: failed to allocate PD entry table\n", 0x0C);
+            return -1;
+        }
+        /* Zero the new table */
+        uint64_t *tbl = (uint64_t *)(uintptr_t)new_table;
+        for (uint32_t i = 0; i < PT_ENTRIES; i++) tbl[i] = 0;
         pd[pd_idx] = (uint64_t)(uintptr_t)new_table | PTE_PRESENT | PTE_WRITABLE | PTE_USER;
+        print_str("MM: allocated PD entry table at 0x", 0x0A);
+        print_hex((uintptr_t)new_table, 0x0A);
+        print_str("\n", 0x0A);
     }
     uint64_t *pt = (uint64_t *)(uintptr_t)(pd[pd_idx] & ~0xFFFULL);
+
+    /* Check if entry already exists */
+    if (pt[pt_idx] & PTE_PRESENT) {
+        print_str("MM: entry already present, overwriting\n", 0x0E);
+    }
 
     uint64_t entry = (paddr & ~0xFFFULL) | PTE_PRESENT;
     if (flags & MM_FLAG_WRITE) entry |= PTE_WRITABLE;
     if (flags & MM_FLAG_USER)  entry |= PTE_USER;
-    if (flags & MM_FLAG_DEVICE) entry |= PTE_PCD;
+    if (flags & MM_FLAG_PCD)   entry |= PTE_PCD;
     if (flags & MM_FLAG_GLOBAL) entry |= PTE_GLOBAL;
+    
+    /* Handle NX (No-Execute) bit - bit 63 in page table entry */
+    if (!(flags & MM_FLAG_NX)) {
+        /* If NX flag is NOT set, allow execution (clear bit 63) */
+        entry &= ~(1ULL << 63);
+    } else {
+        /* If NX flag IS set, disable execution (set bit 63) */
+        entry |= (1ULL << 63);
+    }
 
     pt[pt_idx] = entry;
     __asm__ volatile("invlpg (%0)" : : "r"((uintptr_t)vaddr) : "memory");
+
+    print_str("MM: mapped 0x", 0x0A);
+    print_hex(vaddr, 0x0A);
+    print_str(" -> 0x", 0x0A);
+    print_hex(paddr, 0x0A);
+    print_str(" (entry=0x", 0x0A);
+    print_hex(entry, 0x0A);
+    print_str(")\n", 0x0A);
 
     return 0;
 }
@@ -871,38 +964,57 @@ void mm_dump_stats(void) {
 /* Check page mapping status (debug)                                   */
 /* ------------------------------------------------------------------ */
 void mm_check_page(uint64_t vaddr) {
-    uint32_t pd_idx = (uint32_t)((vaddr >> 21) & 0x1FFu);
-    uint32_t pt_idx = (uint32_t)((vaddr >> 12) & 0x1FFu);
-    
-    if (pd_idx >= NUM_PTS) {
-        print_str("MM: Invalid page table index for 0x", 0x0C);
-        print_hex(vaddr, 0x0C);
-        print_str("\n", 0x0C);
-        return;
-    }
-    
-    uint64_t entry = pt[pd_idx][pt_idx];
-    
+    uint64_t pml4_idx = (vaddr >> 39) & 0x1FF;
+    uint64_t pdp_idx  = (vaddr >> 30) & 0x1FF;
+    uint64_t pd_idx   = (vaddr >> 21) & 0x1FF;
+    uint64_t pt_idx   = (vaddr >> 12) & 0x1FF;
+
     print_str("MM: Page 0x", 0x0E);
     print_hex(vaddr, 0x0E);
-    print_str(" (PT[", 0x0E);
+    print_str(" (PML4[", 0x0E);
+    print_num(pml4_idx, 0x0E);
+    print_str("] PDPT[", 0x0E);
+    print_num(pdp_idx, 0x0E);
+    print_str("] PD[", 0x0E);
     print_num(pd_idx, 0x0E);
-    print_str("][", 0x0E);
+    print_str("] PT[", 0x0E);
     print_num(pt_idx, 0x0E);
-    print_str("]): Entry=0x", 0x0E);
-    print_hex(entry, 0x0E);
+    print_str("]): ", 0x0E);
+
+    /* Check PML4 */
+    if (!(pml4[pml4_idx] & PTE_PRESENT)) {
+        print_str("[NOT PRESENT] PML4 entry\n", 0x0C);
+        return;
+    }
+    uint64_t *pdp = (uint64_t *)(uintptr_t)(pml4[pml4_idx] & ~0xFFFULL);
+
+    /* Check PDPT */
+    if (!(pdp[pdp_idx] & PTE_PRESENT)) {
+        print_str("[NOT PRESENT] PDPT entry\n", 0x0C);
+        return;
+    }
+    uint64_t *pd = (uint64_t *)(uintptr_t)(pdp[pdp_idx] & ~0xFFFULL);
+
+    /* Check PD */
+    if (!(pd[pd_idx] & PTE_PRESENT)) {
+        print_str("[NOT PRESENT] PD entry\n", 0x0C);
+        return;
+    }
+    uint64_t *pt = (uint64_t *)(uintptr_t)(pd[pd_idx] & ~0xFFFULL);
+
+    /* Check PT */
+    uint64_t entry = pt[pt_idx];
     
     if (entry & PTE_PRESENT) {
-        print_str(" [P", 0x0A);
+        print_str("[P", 0x0A);
         if (entry & PTE_WRITABLE) print_str("W", 0x0A);
         if (entry & PTE_USER) print_str("U", 0x0A);
         if (entry & PTE_GLOBAL) print_str("G", 0x0A);
         print_str("] Phys=0x", 0x0A);
-        print_hex((uint32_t)(entry & ~0xFFFu), 0x0A);
+        print_hex64((entry & ~0xFFFULL), 0x0A);
     } else {
-        print_str(" [NOT PRESENT]", 0x0C);
+        print_str("[NOT PRESENT] PT entry\n", 0x0C);
     }
-    print_str("\n", 0x0E);
 }
 
 /* ------------------------------------------------------------------ */
@@ -943,6 +1055,94 @@ int handle_page_fault(uint64_t fault_addr, uint64_t error_code) {
         return 0;  /* Address too high - don't handle */
     }
 
+    /* Check if this is an init.bin page fault (demand paging) */
+    extern uint8_t _binary_payload_init_bin_start[];
+    extern uint8_t _binary_payload_init_bin_end[];
+    uint64_t init_start = INIT_LOAD_ADDR;  /* 0x400000 */
+    uint64_t init_end   = init_start + (uint64_t)(_binary_payload_init_bin_end - _binary_payload_init_bin_start);
+    
+    if (page_start >= init_start && page_start < init_end) {
+        /* Allocate a physical page */
+        void *phys_page = mm_alloc_page();
+        if (!phys_page) {
+            return 0;  /* Out of memory */
+        }
+        
+        /* Calculate offset in init.bin */
+        uint64_t offset = page_start - init_start;
+        uint64_t copy_size = PAGE_SIZE;
+        uint64_t total_size = (uint64_t)(_binary_payload_init_bin_end - _binary_payload_init_bin_start);
+        
+        /* Don't copy beyond the end of init.bin */
+        if (offset + copy_size > total_size) {
+            copy_size = total_size - offset;
+        }
+        
+        /* Zero the page first */
+        uint8_t *p = (uint8_t *)phys_page;
+        for (uint32_t i = 0; i < PAGE_SIZE; i++) {
+            p[i] = 0;
+        }
+        
+        /* Copy data from init.bin */
+        uint8_t *src = _binary_payload_init_bin_start + offset;
+        for (uint64_t i = 0; i < copy_size; i++) {
+            p[i] = src[i];
+        }
+        
+        /* Map with user read+execute permissions (no write) */
+        if (mm_map_page(page_start, (uintptr_t)phys_page, MM_FLAG_USER_RX) != 0) {
+            mm_free_page(phys_page);
+            return 0;  /* Mapping failed */
+        }
+        
+        return 1;  /* Page fault handled */
+    }
+    
+    /* Check if this is an ebts.bin page fault (demand paging) */
+    extern uint8_t _binary_payload_ebts_bin_start[];
+    extern uint8_t _binary_payload_ebts_bin_end[];
+    uint64_t ebts_start = EBTS_LOAD_ADDR;  /* 0x500000 */
+    uint64_t ebts_end   = ebts_start + (uint64_t)(_binary_payload_ebts_bin_end - _binary_payload_ebts_bin_start);
+    
+    if (page_start >= ebts_start && page_start < ebts_end) {
+        /* Allocate a physical page */
+        void *phys_page = mm_alloc_page();
+        if (!phys_page) {
+            return 0;  /* Out of memory */
+        }
+        
+        /* Calculate offset in ebts.bin */
+        uint64_t offset = page_start - ebts_start;
+        uint64_t copy_size = PAGE_SIZE;
+        uint64_t total_size = (uint64_t)(_binary_payload_ebts_bin_end - _binary_payload_ebts_bin_start);
+        
+        /* Don't copy beyond the end of ebts.bin */
+        if (offset + copy_size > total_size) {
+            copy_size = total_size - offset;
+        }
+        
+        /* Zero the page first */
+        uint8_t *p = (uint8_t *)phys_page;
+        for (uint32_t i = 0; i < PAGE_SIZE; i++) {
+            p[i] = 0;
+        }
+        
+        /* Copy data from ebts.bin */
+        uint8_t *src = _binary_payload_ebts_bin_start + offset;
+        for (uint64_t i = 0; i < copy_size; i++) {
+            p[i] = src[i];
+        }
+        
+        /* Map with user read+execute permissions (no write) */
+        if (mm_map_page(page_start, (uintptr_t)phys_page, MM_FLAG_USER_RX) != 0) {
+            mm_free_page(phys_page);
+            return 0;  /* Mapping failed */
+        }
+        
+        return 1;  /* Page fault handled */
+    }
+
     /* Allocate a physical page for this virtual address */
     void *phys_page = mm_alloc_page();
     if (!phys_page) {
@@ -956,13 +1156,13 @@ int handle_page_fault(uint64_t fault_addr, uint64_t error_code) {
     }
 
     /* Determine page flags based on error code */
-    uint32_t map_flags = MM_FLAG_READ | MM_FLAG_USER;
+    uint64_t map_flags = MM_FLAG_PRESENT | MM_FLAG_USER;
     if (error_code & 0x02) {  /* Write access? */
         map_flags |= MM_FLAG_WRITE;
     }
 
     /* Map the page */
-    int ret = mm_map_page(page_start, (uint32_t)(uintptr_t)phys_page, map_flags);
+    int ret = mm_map_page(page_start, (uintptr_t)phys_page, map_flags);
     if (ret != 0) {
         mm_free_page(phys_page);
         return 0;  /* Mapping failed */
@@ -970,18 +1170,4 @@ int handle_page_fault(uint64_t fault_addr, uint64_t error_code) {
 
     /* Page successfully mapped - return 1 to continue execution */
     return 1;
-}
-
-/*
- * page_fault_handler - NOT USED
- * 
- * The actual page fault handling is done in handle_page_fault(),
- * which is called from isr_handler(). This function is kept only
- * for ABI compatibility.
- */
-void page_fault_handler(uint64_t error_code) {
-    (void)error_code;
-    /* Should never be called - isr_handler handles page faults directly */
-    __asm__ volatile("cli; hlt");
-    for (;;) __asm__ volatile("hlt");
 }
