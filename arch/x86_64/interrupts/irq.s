@@ -1,3 +1,21 @@
+/**
+ * E-comOS Kernel - A Microkernel of E-comOS Operating System.
+ * Copyright (C) 2026 Saladin5101 
+ * 
+ * This file is a part of E-comOS Kernel
+ * This program is a free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero Genernal Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of 
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ * 
+ * You should have recevied a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licese>
+**/
 # E-comOS - IRQ stubs (64-bit)
 
 .section .text
@@ -66,38 +84,18 @@ IRQ 15, 47
 
 irq_common_stub:
     SAVE_REGS
-
     movw $0x10, %ax
     movw %ax, %ds
     movw %ax, %es
     movw %ax, %fs
     movw %ax, %gs
-
-    /* Pass int_no to handler (after 15*8 saved regs + 16 stub push - 8 call) */
     movq 128(%rsp), %rdi
-
     call irq_handler_asm_shim
-
-    /* Restore segment selectors (already kernel, but keep consistent) */
     movw $0x10, %ax
     movw %ax, %ds
     movw %ax, %es
     movw %ax, %fs
     movw %ax, %gs
-
     RESTORE_REGS
-    /* Check CS.RPL to determine if interrupt came from user or kernel mode */
-    /* After RESTORE_REGS, stack has: err_code(8) + int_no(8) + rip(8) + cs(8) + rflags(8) + (rsp)(8) + (ss)(8) */
-    /* CS is at RSP+24 */
-    movq 24(%rsp), %rax
-    testw $3, %ax           /* Check RPL (bits 0-1) */
-    jnz 2f                  /* If RPL=3 (user mode), add 56 */
-    /* Kernel mode: add 40 (int_no + err_code + rip + cs + rflags) */
-    addq $40, %rsp
-    jmp 3f
-2:
-    /* User mode: add 56 (int_no + err_code + rip + cs + rflags + rsp + ss) */
-    addq $56, %rsp
-3:
+    addq $16, %rsp
     iretq
-

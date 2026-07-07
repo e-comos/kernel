@@ -1,3 +1,20 @@
+/**
+ * Copyright (C) 2025,2026 Saladin5101
+ * 
+ * This file is a part of E-comOS Kernel.
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
 /* isr.s - 64-bit Interrupt Service Routine Stubs
  *
  * AT&T syntax, assembled with x86_64-elf-as --64.
@@ -153,8 +170,7 @@ isr128: cli; pushq $0; pushq $128; jmp syscall_stub
  *
  * After SAVE_REGS, RSP points at registers_t.
  * We pass RSP as the single argument (rdi) to isr_handler.
- * isr_handler never returns (it halts), but we keep the iretq path
- * for non-fatal vectors (#BP, #OF) that do return 0.
+ * isr_handler may return for non-fatal vectors (#BP, #OF, #PF handled).
  * ============================================================================ */
 isr_common_stub:
     SAVE_REGS
@@ -177,19 +193,7 @@ isr_common_stub:
     movw %ax, %gs
 
     RESTORE_REGS
-    /* Check CS.RPL to determine if interrupt came from user or kernel mode */
-    /* After RESTORE_REGS, stack has: err_code(8) + int_no(8) + rip(8) + cs(8) + rflags(8) + (rsp)(8) + (ss)(8) */
-    /* CS is at RSP+24 */
-    movq 24(%rsp), %rax
-    testw $3, %ax           /* Check RPL (bits 0-1) */
-    jnz 2f                  /* If RPL=3 (user mode), add 56 */
-    /* Kernel mode: add 40 (int_no + err_code + rip + cs + rflags) */
-    addq $40, %rsp
-    jmp 3f
-2:
-    /* User mode: add 56 (int_no + err_code + rip + cs + rflags + rsp + ss) */
-    addq $56, %rsp
-3:
+    addq $16, %rsp
     iretq
 
 /* ============================================================================
@@ -241,13 +245,13 @@ syscall_stub:
 
     RESTORE_REGS
     /* Check CS.RPL to determine if interrupt came from user or kernel mode */
-    /* After RESTORE_REGS, stack has: err_code(8) + int_no(8) + rip(8) + cs(8) + rflags(8) + (rsp)(8) + (ss)(8) */
+    /* After RESTORE_REGS, stack has: int_no(8) + err_code(8) + rip(8) + cs(8) + rflags(8) + (rsp)(8) + (ss)(8) */
     /* CS is at RSP+24 */
     movq 24(%rsp), %rax
     testw $3, %ax           /* Check RPL (bits 0-1) */
     jnz 2f                  /* If RPL=3 (user mode), add 56 */
-    /* Kernel mode: add 40 (int_no + err_code + rip + cs + rflags) */
-    addq $40, %rsp
+    /* Kernel mode: add 16 (int_no + err_code) then iretq reads rip, cs, rflags */
+    addq $16, %rsp
     jmp 3f
 2:
     /* User mode: add 56 (int_no + err_code + rip + cs + rflags + rsp + ss) */
