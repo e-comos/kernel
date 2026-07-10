@@ -1,4 +1,5 @@
 /**
+ * E-comOS Kernel - The Microkernel of E-comOS Operating System
  * Copyright (C) 2025,2026 Saladin5101
  * 
  * This file is a part of E-comOS Kernel.
@@ -175,6 +176,7 @@ isr128: cli; pushq $0; pushq $128; jmp syscall_stub
 isr_common_stub:
     SAVE_REGS
 
+	movq %rsp, %r12
     /* Switch to kernel data segment */
     movw $0x10, %ax
     movw %ax, %ds
@@ -184,7 +186,9 @@ isr_common_stub:
 
     movq %rsp, %rdi          /* rdi = registers_t* */
     call isr_handler         /* isr_handler(regs) */
-
+	
+	movq %r12, %rsp
+	
     /* Restore caller segments (for non-fatal return) */
     movw $0x23, %ax
     movw %ax, %ds
@@ -193,8 +197,9 @@ isr_common_stub:
     movw %ax, %gs
 
     RESTORE_REGS
-    addq $16, %rsp
-    iretq
+	addq $16, %rsp
+	/* 64-bit, do this */
+	iretq
 
 /* ============================================================================
  * syscall_stub  (int 0x80)
@@ -217,6 +222,8 @@ isr_common_stub:
 syscall_stub:
     SAVE_REGS
 
+	movq %rsp, %r12			/* Save stack pointer to r12 */
+
     movw $0x10, %ax
     movw %ax, %ds
     movw %ax, %es
@@ -231,6 +238,8 @@ syscall_stub:
 
     call syscall_handler
 
+	movq %r12, %rsp
+
     /* Write return value back into saved rax so caller sees it */
     movq %rax, 112(%rsp)
 
@@ -244,17 +253,7 @@ syscall_stub:
     movw %ax, %gs
 
     RESTORE_REGS
-    /* Check CS.RPL to determine if interrupt came from user or kernel mode */
-    /* After RESTORE_REGS, stack has: int_no(8) + err_code(8) + rip(8) + cs(8) + rflags(8) + (rsp)(8) + (ss)(8) */
-    /* CS is at RSP+24 */
-    movq 24(%rsp), %rax
-    testw $3, %ax           /* Check RPL (bits 0-1) */
-    jnz 2f                  /* If RPL=3 (user mode), add 56 */
-    /* Kernel mode: add 16 (int_no + err_code) then iretq reads rip, cs, rflags */
-    addq $16, %rsp
-    jmp 3f
-2:
-    /* User mode: add 56 (int_no + err_code + rip + cs + rflags + rsp + ss) */
-    addq $56, %rsp
-3:
-    iretq
+	
+	addq $16, %rsp
+	iretq
+

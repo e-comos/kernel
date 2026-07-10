@@ -84,18 +84,26 @@ IRQ 15, 47
 
 irq_common_stub:
     SAVE_REGS
+
+	movq %rsp, %r12 # Save the stack pointer to r12
+
     movw $0x10, %ax
     movw %ax, %ds
     movw %ax, %es
     movw %ax, %fs
     movw %ax, %gs
+
     movq 128(%rsp), %rdi
+
     call irq_handler_asm_shim
-    movw $0x10, %ax
+
+    movq %r12, %rsp
+	movw $0x10, %ax
     movw %ax, %ds
     movw %ax, %es
     movw %ax, %fs
     movw %ax, %gs
+
     RESTORE_REGS
-    addq $16, %rsp
+	addq $16, %rsp
     iretq
