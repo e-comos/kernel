@@ -256,4 +256,3 @@ syscall_stub:
 	
 	addq $16, %rsp
 	iretq
-
