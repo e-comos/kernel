@@ -16,23 +16,12 @@
 */
 
 #include <stdint.h>
+#include "../internal/gdt.h" /* Use the user's unmodified header */
 
 #define GDT_USER_CODE_INDEX 3
 #define GDT_USER_DATA_INDEX 4
 #define USER_CS_SELECTOR ((GDT_USER_CODE_INDEX << 3) | 0x03) // 0x1B
 #define USER_DS_SELECTOR ((GDT_USER_DATA_INDEX << 3) | 0x03)
-
-/* ------------------------------------------------------------------ */
-/* GDT entry (8 bytes)                                                */
-/* ------------------------------------------------------------------ */
-typedef struct {
-    uint16_t limit_low;
-    uint16_t base_low;
-    uint8_t  base_middle;
-    uint8_t  access;
-    uint8_t  granularity;
-    uint8_t  base_high;
-} __attribute__((packed)) gdt_entry;
 
 /* ------------------------------------------------------------------ */
 /* GDTR (10 bytes for 64-bit mode)                                    */
@@ -74,89 +63,71 @@ typedef struct {
 /* ------------------------------------------------------------------ */
 /* Static storage                                                     */
 /* ------------------------------------------------------------------ */
-/* 5 normal entries + 2 slots for the 64-bit TSS descriptor */
-static gdt_entry    gdt[5];
-static tss_descriptor tss_desc;
-static gdt_ptr64    gdtp;
-static Tss64       tss;
+/* 7 entries total: 
+ * - Indices 0-4: Standard code and data segments
+ * - Indices 5-6: Map directly to the 16-byte TSS descriptor
+ */
+static struct gdt_entry gdt[7] __attribute__((aligned(8)));
+static gdt_ptr64        gdtp;
+static Tss64            tss;
 
 static uint8_t kernel_stack[65536] __attribute__((aligned(16)));
 static uint8_t interrupt_stack[32768] __attribute__((aligned(16)));
 
 /* ------------------------------------------------------------------ */
-/* Helpers                                                            */
+/* Public Set Gate Function (conforms to gdt.h)                       */
 /* ------------------------------------------------------------------ */
-static void gdt_set(int i, uint32_t base, uint32_t limit,
-                   uint8_t access, uint8_t gran) {
-    gdt[i].base_low     = (uint16_t)(base & 0xFFFFu);
-    gdt[i].base_middle  = (uint8_t)((base >> 16) & 0xFFu);
-    gdt[i].base_high    = (uint8_t)((base >> 24) & 0xFFu);
-    gdt[i].limit_low    = (uint16_t)(limit & 0xFFFFu);
-    gdt[i].granularity = (uint8_t)(((limit >> 16) & 0x0Fu) | (gran & 0xF0u));
-    gdt[i].access      = access;
-}
-
-static void tss_desc_set(uint64_t base, uint32_t limit) {
-    tss_desc.limit_low   = (uint16_t)(limit & 0xFFFFu);
-    tss_desc.base_low    = (uint16_t)(base & 0xFFFFu);
-    tss_desc.base_middle = (uint8_t)((base >> 16) & 0xFFu);
-    tss_desc.access     = 0x89u; /* present, DPL=0, available 64-bit TSS */
-    tss_desc.granularity = (uint8_t)(((limit >> 16) & 0x0Fu));
-    tss_desc.base_high   = (uint8_t)((base >> 24) & 0xFFu);
-    tss_desc.base_upper  = (uint32_t)(base >> 32);
-    tss_desc.reserved   = 0;
+void gdt_set_gate(int num, uint32_t base, uint32_t limit, uint8_t access, uint8_t gran) {
+    if (num < 0 || num >= 7) return;
+    gdt[num].base_low     = (uint16_t)(base & 0xFFFFu);
+    gdt[num].base_middle  = (uint8_t)((base >> 16) & 0xFFu);
+    gdt[num].base_high    = (uint8_t)((base >> 24) & 0xFFu);
+    gdt[num].limit_low    = (uint16_t)(limit & 0xFFFFu);
+    gdt[num].granularity  = (uint8_t)(((limit >> 16) & 0x0Fu) | (gran & 0xF0u));
+    gdt[num].access       = access;
 }
 
 /* ------------------------------------------------------------------ */
-/* gdtInit                                                            */
+/* GDT Initialization                                                 */
 /* ------------------------------------------------------------------ */
-/*
- * Precondition:  called before any ring-3 code or interrupt.
- * Postcondition: GDT loaded, TSS loaded, segment registers updated.
- */
 void gdt_init(void) {
     /* Null descriptor */
-    gdt_set(0, 0, 0, 0x00u, 0x00u);
+    gdt_set_gate(0, 0, 0, 0x00u, 0x00u);
     /* Kernel code: 64-bit, ring 0 (L=1 in granularity byte) */
-    gdt_set(1, 0, 0xFFFFFu, 0x9Au, 0xA0u); /* 0xA0 = G=1, L=1 (64-bit) */
+    gdt_set_gate(1, 0, 0xFFFFFu, 0x9Au, 0xA0u); /* 0xA0 = G=1, L=1 (64-bit) */
     /* Kernel data: ring 0 */
-    gdt_set(2, 0, 0xFFFFFu, 0x92u, 0xC0u);
+    gdt_set_gate(2, 0, 0xFFFFFu, 0x92u, 0xC0u);
     /* User code: 64-bit, ring 3 */
-    gdt_set(3, 0, 0xFFFFFu, 0xFAu, 0xA0u);
+    gdt_set_gate(3, 0, 0xFFFFFu, 0xFAu, 0xA0u);
     /* User data: ring 3 */
-    gdt_set(4, 0, 0xFFFFFu, 0xF2u, 0xC0u);
+    gdt_set_gate(4, 0, 0xFFFFFu, 0xF2u, 0xC0u);
 
-    /* Build a flat GDT: [gdt entries][tss descriptor] */
-    gdtp.limit = (uint16_t)(sizeof(gdt) + sizeof(tss_desc) - 1u);
+    /* TSS Setup (Maps directly onto gdt[5] and gdt[6]) */
+    uint64_t tss_base = (uint64_t)(uintptr_t)&tss;
+    uint32_t tss_limit = (uint32_t)(sizeof(Tss64) - 1u);
+
+    tss_descriptor *td = (tss_descriptor *)&gdt[5];
+    td->limit_low   = (uint16_t)(tss_limit & 0xFFFFu);
+    td->base_low    = (uint16_t)(tss_base & 0xFFFFu);
+    td->base_middle = (uint8_t)((tss_base >> 16) & 0xFFu);
+    td->access      = 0x89u; /* present, DPL=0, available 64-bit TSS */
+    td->granularity = (uint8_t)((tss_limit >> 16) & 0x0Fu);
+    td->base_high   = (uint8_t)((tss_base >> 24) & 0xFFu);
+    td->base_upper  = (uint32_t)(tss_base >> 32);
+    td->reserved    = 0;
+
+    /* Manually zero the TSS to avoid garbage-memory traps */
+    for (uint32_t i = 0; i < sizeof(Tss64); i++) {
+        ((uint8_t *)&tss)[i] = 0;
+    }
+
+    tss.rsp0       = (uint64_t)(uintptr_t)(kernel_stack + sizeof(kernel_stack));
+    tss.ist[0]     = (uint64_t)(uintptr_t)(interrupt_stack + sizeof(interrupt_stack));
+    tss.iomap_base = (uint16_t)sizeof(Tss64);
+
+    /* Load the GDTR base pointing to our clean, static global array */
+    gdtp.limit = (uint16_t)(sizeof(gdt) - 1u);
     gdtp.base  = (uint64_t)(uintptr_t)gdt;
-
-    /* TSS */
-    tss.rsp0      = (uint64_t)(uintptr_t)(kernel_stack + sizeof(kernel_stack));
-    tss.ist[0]    = (uint64_t)(uintptr_t)(interrupt_stack + sizeof(interrupt_stack));
-    tss.iomap_base = (uint16_t)sizeof(Tss64); /* no I/O bitmap */
-
-    tss_desc_set((uint64_t)(uintptr_t)&tss, (uint32_t)(sizeof(Tss64) - 1u));
-
-    /* We need the TSS descriptor contiguous with gdt[] in memory.
-     * Since C doesn't guarantee struct layout across separate arrays,
-     * we embed the TSS descriptor address directly in the GDTR. */
-    gdtp.limit = (uint16_t)(sizeof(gdt) + sizeof(tss_desc) - 1u);
-    /* GDTR base points to gdt[0]; TSS descriptor follows immediately
-     * only if they are adjacent.  Use a packed struct trick: */
-
-    /* Simpler: build a single flat table in a local array */
-    static uint8_t gdt_flat[sizeof(gdt) + sizeof(tss_desc)]
-        __attribute__((aligned(8)));
-
-    /* Copy normal entries */
-    for (uint32_t i = 0; i < sizeof(gdt); i++)
-        gdt_flat[i] = ((uint8_t *)gdt)[i];
-    /* Copy TSS descriptor */
-    for (uint32_t i = 0; i < sizeof(tss_desc); i++)
-        gdt_flat[sizeof(gdt) + i] = ((uint8_t *)&tss_desc)[i];
-
-    gdtp.limit = (uint16_t)(sizeof(gdt_flat) - 1u);
-    gdtp.base  = (uint64_t)(uintptr_t)gdt_flat;
 
     __asm__ volatile(
         "lgdt %0\n"
@@ -176,12 +147,11 @@ void gdt_init(void) {
         : : "m"(gdtp) : "rax", "memory"
     );
 
-    /* TSS selector = offset of tss_desc in gdt_flat = sizeof(gdt) = 0x28
-     * RPL = 0, TI = 0  →  selector = 0x28 */
+    /* Load TSS selector (Index 5 = 5 * 8 = 40 = 0x28) */
     __asm__ volatile("ltr %%ax" : : "a"((uint16_t)0x28u));
 }
 
-/* Update kernel stack pointer in TSS (call on each context switch) */
+/* Update kernel stack pointer in TSS (called on each context switch) */
 void tss_set_kernel_stack(uint64_t rsp0) {
     tss.rsp0 = rsp0;
 }

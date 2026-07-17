@@ -30,8 +30,8 @@
  * - Does NOT change RSP (still points to user stack!)
  *
  * Per-CPU data structure (accessed via GS base):
- *   Offset 0: kernel_rsp (kernel stack pointer)
- *   Offset 8: user_rsp (saved user stack pointer)
+ * Offset 0: kernel_rsp (kernel stack pointer)
+ * Offset 8: user_rsp (saved user stack pointer)
  */
 
 .globl syscall_entry
@@ -46,21 +46,21 @@ syscall_entry:
 
     /* Step 3: Save registers on kernel stack
      * After all pushes, stack layout from RSP:
-     *   0   = %r15 (pushed last)
-     *   8   = %r14
-     *   16  = %r13
-     *   24  = %r12
-     *   32  = %rbp
-     *   40  = %rbx
-     *   48  = %r11 (user RFLAGS)
-     *   56  = %r10 (arg4)
-     *   64  = %r9
-     *   72  = %r8
-     *   80  = %rdi (arg1)
-     *   88  = %rsi (arg2)
-     *   96  = %rdx (arg3)
-     *   104 = %rcx (user RIP)
-     *   112 = %rax (syscall number, pushed first)
+     * 0   = %r15 (pushed last)
+     * 8   = %r14
+     * 16  = %r13
+     * 24  = %r12
+     * 32  = %rbp
+     * 40  = %rbx
+     * 48  = %r11 (user RFLAGS)
+     * 56  = %r10 (arg4)
+     * 64  = %r9
+     * 72  = %r8
+     * 80  = %rdi (arg1)
+     * 88  = %rsi (arg2)
+     * 96  = %rdx (arg3)
+     * 104 = %rcx (user RIP)
+     * 112 = %rax (syscall number, pushed first)
      */
     pushq   %rax                /* syscall number */
     pushq   %rcx                /* user RIP */
@@ -92,22 +92,22 @@ syscall_entry:
     /* Step 6: Save return value by overwriting saved %rax on stack */
     movq    %rax, 112(%rsp)
 
-    /* Step 7: Restore registers from kernel stack */
+    /* Step 7: Restore registers from kernel stack in exact reverse push order */
     popq    %r15
     popq    %r14
     popq    %r13
     popq    %r12
     popq    %rbp
     popq    %rbx
-    popq    %r11                /* User RFLAGS */
-    popq    %r10                /* Arg4 */
-    popq    %r9
-    popq    %r8
-    popq    %rdi                /* Arg1 */
-    popq    %rsi                /* Arg2 */
-    popq    %rdx                /* Arg3 */
-    popq    %rcx                /* User RIP */
-    popq    %rax                /* Return value (was syscall number, now overwritten) */
+    popq    %r11                /* Matches pushq %r11 */
+    popq    %r10                /* Matches pushq %r10 */
+    popq    %r9                 /* Matches pushq %r9 */
+    popq    %r8                 /* Matches pushq %r8 */
+    popq    %rdi                /* Matches pushq %rdi */
+    popq    %rsi                /* Matches pushq %rsi */
+    popq    %rdx                /* Matches pushq %rdx */
+    popq    %rcx                /* Matches pushq %rcx (user RIP) */
+    popq    %rax                /* Matches pushq %rax (return value) */
 
     /* Step 8: Restore user RSP */
     movq    %gs:8, %rsp         /* Restore user RSP from per-CPU */

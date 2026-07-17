@@ -101,7 +101,7 @@ void enable_syscall_mechanism(void) {
      * Our layout: USER_CS=0x1B, KERNEL_CS=0x08
      * So STAR = (USER_CS << 16) | (KERNEL_CS << 32) = (0x1B << 16) | (0x08 << 32)
      */
-    uint64_t star_value = ((uint64_t)USER_CS << 16) | ((uint64_t)KERNEL_CS << 32);
+	uint64_t star_value = ((uint64_t)0x10 << 48) | ((uint64_t)KERNEL_CS << 32);
     write_msr(MSR_STAR, star_value);
     
     print_str("  STAR configured (0x", 0x0A);
