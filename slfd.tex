@@ -1,0 +1,1038 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{fontenc}
+\usepackage{amsmath}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{tabularx}
+\usepackage{longtable}
+\usepackage{booktabs}
+\hypersetup{colorlinks=true, linkcolor=blue, urlcolor=blue}
+\lstset{
+    basicstyle=\ttfamily\small,
+    keywordstyle=\color{blue},
+    commentstyle=\color{gray},
+    breaklines=true,
+    language=C
+}
+\title{SLFD Specification\\\large{Simple Library Functions Define}}
+\author{Version 10.2}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+% Table of contents disabled to avoid TOC write issues during build
+%\tableofcontents
+%\newpage
+
+\section{Knowledge}
+Welcome to Simple Library Functions Define (SLFD). 
+This is an Interface Specification of E-comOS or other OSes that implement \textbf{SLFD}.
+Please note we support C language only for now, but we may support other languages in the future (not include C++, never).
+If you are a C++ coder, and you want to use SLFD, please use 
+\begin{lstlisting}
+    extern "C" {
+        /* SLFD code here */
+    }
+\end{lstlisting}
+to do your works.
+
+\section{Scope}
+This document defines the core operating system interface known as \textbf{SLFD} (Simple Library Functions Define). It provides system calls for process management, memory allocation, file/device I/O, pipes, network communications, event multiplexing (hear interface), inter‑process communication (IPC), time operations, environment variables, file system operations, command execution, thread management, zero‑copy I/O, asynchronous I/O, and additional features such as user/group management, shared memory, resource limits, and privilege elevation.
+
+The interface is designed to be simple and extensible. Security policies (e.g., privilege levels, access control) are described in Appendix A (ULA - User Level Assessment) and are fully integrated into the core API using integer bitmasks.
+
+All file system paths in this specification follow the SLFD FD layout defined in Appendix B, which includes top‑level directories \texttt{/bin}, \texttt{/dev}, \texttt{/conf}, \texttt{/usr}, \texttt{/lib}, \texttt{/tmp}, \texttt{/sys}, and \texttt{/mnt}.
+
+Kernel Architecture Note: This specification does not mandate a particular kernel architecture. Both monolithic kernels and microkernels can implement SLFD. The behaviour described for each function is mandatory; the underlying implementation may use direct trapping, user‑space servers, or any combination thereof.
+
+\subsection{Design Philosophy}
+SLFD aims to provide a consistent, minimal, and secure interface. Key principles:
+\begin{itemize}
+    \item \textbf{Separation of creation and execution}: Process objects are created with \texttt{proc\_new} and later started with \texttt{proc\_start}, allowing configuration in between.
+    \item \textbf{Explicit resource declaration}: Processes must declare their needed capabilities via \texttt{proc\_setflags} before starting (cannot be elevated later without \texttt{hlud}).
+    \item \textbf{Unified I/O for local resources}: Files, devices, and pipes use \texttt{open}/\texttt{read}/\texttt{write}/\texttt{close}.
+    \item \textbf{Dedicated network functions}: Network I/O uses separate calls (\texttt{net\_connect}, etc.) to avoid confusion with local file semantics.
+    \item \textbf{Event multiplexing as a first-class citizen}: The \texttt{hear} interface allows waiting on any event source (I/O, IPC, signals, process state).
+    \item \textbf{ULA privilege model}: Four levels encoded as bitmasks, replacing traditional UID/GID/mode\_t for better security and simplicity.
+\end{itemize}
+
+\section{Head Files}
+Implementations shall provide the following header files. All headers are located under \texttt{/usr/include}.
+
+\subsection[<slfd.h>]{\texorpdfstring{\texttt{<slfd.h>}}{<slfd.h>}}
+Primary header, includes all other SLFD headers. Defines basic types, resource flags, signal numbers, I/O constants, and function prototypes.
+
+\subsection[<slfd/ula.h>]{\texorpdfstring{\texttt{<slfd/ula.h>}}{<slfd/ula.h>}}
+Defines ULA privilege levels and bitmask layout for file attributes.
+\begin{lstlisting}
+#define LV_HIGHEST   0
+#define LV_GENERAL   1
+#define LV_LOW       2
+#define LV_GETTING   3
+
+#define ULA_CREATOR_SHIFT     24
+#define ULA_CALLER_SHIFT      16
+#define ULA_FLAG_EXEC         (1<<8)
+#define ULA_FLAG_HIDDEN       (1<<9)
+#define ULA_FLAG_ARCHIVE      (1<<10)
+#define ULA_TYPE_FILE         (0<<4)
+#define ULA_TYPE_DIR          (1<<4)
+#define ULA_TYPE_LINK         (2<<4)
+#define ULA_TYPE_DEV          (3<<4)
+
+#define ULA_MAKE_ATTR(creator, caller, flags, type) \
+    (((creator) << ULA_CREATOR_SHIFT) | ((caller) << ULA_CALLER_SHIFT) | (flags) | (type))
+\end{lstlisting}
+
+\subsection[<slfd/fs.h>]{\texorpdfstring{\texttt{<slfd/fs.h>}}{<slfd/fs.h>}}
+Extended file system operations (see Section~\ref{sec:fs_ext}).
+
+\subsection[<slfd/thread.h>]{\texorpdfstring{\texttt{<slfd/thread.h>}}{<slfd/thread.h>}}
+Threading primitives (see Section~\ref{sec:threads}).
+
+\subsection[<slfd/performance.h>]{\texorpdfstring{\texttt{<slfd/performance.h>}}{<slfd/performance.h>}}
+Zero‑copy and asynchronous I/O (implementation‑defined).
+
+\subsection[<slfd/ipc_perf.h>]{\texorpdfstring{\texttt{<slfd/ipc\_perf.h>}}{<slfd/ipc_perf.h>}}
+IPC performance tuning (implementation‑defined).
+
+\subsection[<slfd/hear.h>]{\texorpdfstring{\texttt{<slfd/hear.h>}}{<slfd/hear.h>}}
+Event multiplexing (hear interface), see Section~\ref{sec:hear}.
+
+
+\section{Terminology and Conventions}
+
+\subsection{Types}
+\begin{lstlisting}
+typedef int fid_t;              /* file/device/pipe/network identifier */
+typedef int pid_t;              /* process identifier */
+typedef long off_t;             /* file offset (signed 64-bit) */
+typedef long ssize_t;           /* signed size (64-bit) */
+typedef unsigned long size_t;   /* unsigned size (64-bit) */
+typedef uint32_t thread_id;     /* thread identifier for IPC and threading */
+
+typedef struct {
+    int argc;
+    char **argv;
+    char **envp;
+} parg_t;
+
+struct stat {
+    size_t st_size;
+    uint32_t st_attr_mask;
+    /* other fields implementation-defined */
+};
+
+struct utsname {
+    char sysname[32];
+    char nodename[32];
+    char release[32];
+    char version[32];
+    char machine[32];
+};
+
+struct rlimit {
+    unsigned long rlim_cur;
+    unsigned long rlim_max;
+};
+
+#define IPC_MAX_DATA_SIZE 4096
+typedef struct ipc_message {
+    uint32_t type;
+    uint32_t source;
+    uint32_t target;
+    uint32_t timestamp;
+    uint32_t size;
+    uint32_t sequence;
+    uint8_t  data[IPC_MAX_DATA_SIZE];
+} ipc_message_t;
+\end{lstlisting}
+
+\subsection{Standard Constants}
+\begin{lstlisting}
+/* Resource flags (bitmask) */
+#define PROC_IO_READ    (1<<0)
+#define PROC_IO_WRITE   (1<<1)
+#define PROC_NETWORK    (1<<2)
+#define PROC_MEMORY     (1<<3)
+
+/* Signal numbers (PROCSIG_* are aliases to traditional signal numbers) */
+#define PROCSIG_HUP      1
+#define PROCSIG_INT      2
+#define PROCSIG_QUIT     3
+#define PROCSIG_ILL      4
+#define PROCSIG_TRAP     5
+#define PROCSIG_ABRT     6
+#define PROCSIG_BUS      7
+#define PROCSIG_FPE      8
+#define PROCSIG_KILL     9
+#define PROCSIG_USR1     10
+#define PROCSIG_SEGV     11
+#define PROCSIG_USR2     12
+#define PROCSIG_PIPE     13
+#define PROCSIG_ALRM     14
+#define PROCSIG_TERM     15
+#define PROCSIG_CHLD     17
+#define PROCSIG_STOP     18
+#define PROCSIG_CONT     19
+#define PROCSIG_TSTP     20
+
+/* io_seek whence */
+#define SEEK_SET 0
+#define SEEK_CUR 1
+#define SEEK_END 2
+
+/* mount flags */
+#define MS_RDONLY     1
+#define MS_NOSUID     2
+#define MS_NODEV      4
+#define MS_NOEXEC     8
+#define MS_SYNCHRONOUS 16
+#define MS_REMOUNT    32
+#define MS_MANDLOCK   64
+#define MS_DIRSYNC    128
+#define MS_NOATIME    256
+#define MS_NODIRATIME 512
+#define MS_BIND       1024
+#define MS_MOVE       2048
+#define MS_REC        4096
+#define MS_SILENT     8192
+#define MS_POSIXACL   16384
+#define MS_UNBINDABLE 65536
+#define MS_PRIVATE    131072
+#define MS_SLAVE      262144
+#define MS_SHARED     524288
+#define MS_RELATIME   1048576
+#define MS_KERNMOUNT  2097152
+#define MS_I_VERSION  4194304
+#define MS_STRICTATIME 8388608
+#define MS_LAZYTIME   16777216
+
+/* umask constants */
+#define UMASK_DEFAULT 0022
+\end{lstlisting}
+
+\subsection{Error Handling}
+Functions return an integer (\texttt{int} or \texttt{ssize\_t}). Negative values indicate an error; the absolute value is one of the error codes defined in Section~\ref{sec:errors}. Non‑negative indicates success (or positive data like PID, \texttt{fid\_t}, bytes transferred). On failure, the global \texttt{errno} is also set to the absolute value of the error code, allowing use of standard error-checking idioms. Callers may check either the return value or \texttt{errno}.
+
+\subsection{Conventions}
+\begin{itemize}
+    \item Strings are null‑terminated.
+    \item Passing \texttt{NULL} where not allowed yields \texttt{-EINVAL}.
+    \item File descriptors 0,1,2 are not pre‑opened unless \texttt{<slfd/openstd.h>} is used.
+    \item File attributes are integer bitmasks using ULA macros.
+\end{itemize}
+\section{Process Management}
+
+\subsection{proc\_new}
+\begin{lstlisting}
+pid_t proc_new(const char *args, uint32_t privilege_mask);
+\end{lstlisting}
+
+\subsubsection{Description}
+Creates a new process object and allocates a unique PID. The process does not start executing immediately; a subsequent call to \texttt{proc\_start} is always required, regardless of whether \texttt{args} is \texttt{"n"} (new) or \texttt{"s"} (clone). This ensures a unified creation-startup flow.
+
+\subsubsection{Parameters}
+\begin{tabularx}{\textwidth}{|l|l|X|}
+\hline
+\textbf{Parameter} & \textbf{Type} & \textbf{Description} \\
+\hline
+\verb|args| & \verb|const char *| & Mode: \texttt{"n"} (new, no memory image) or \texttt{"s"} (clone, inherits a copy of parent's memory image). \\
+\verb|privilege_mask| & \verb|uint32_t| & ULA privilege mask (see \texttt{<slfd/ula.h>}). \\
+\hline
+\end{tabularx}
+
+\subsubsection{Return Value}
+\begin{itemize}
+    \item \textbf{Success}: Returns a positive PID.
+    \item \textbf{Failure}: Returns a negative error code:
+        \begin{itemize}
+            \item \texttt{-EINVAL}: Invalid \texttt{args} string.
+            \item \texttt{-ENOMEM}: Insufficient kernel memory for new process.
+            \item \texttt{-EPERM}: Caller lacks privilege to create process with the given \texttt{privilege\_mask}.
+        \end{itemize}
+\end{itemize}
+
+\subsubsection{Design Rationale}
+Traditional UNIX \texttt{fork()} clones and runs immediately. SLFD separates creation from starting to allow configuration (e.g., via \texttt{proc\_setflags}) between them. Both \texttt{"n"} and \texttt{"s"} modes now require \texttt{proc\_start} to run, making the flow uniform and predictable.
+
+\subsubsection{Notes for Callers}
+\begin{itemize}
+    \item The \texttt{privilege\_mask} must be constructed using \texttt{ULA\_MAKE\_ATTR} or similar macros.
+    \item After \texttt{proc\_new}, you may call \texttt{proc\_setflags} to adjust resource flags before starting.
+    \item The child process (for \texttt{"s"}) inherits the parent's memory image at the time of \texttt{proc\_new}, but does not execute until \texttt{proc\_start}.
+\end{itemize}
+
+\subsubsection{Changelog}
+\begin{tabularx}{\textwidth}{|l|X|}
+\hline
+\textbf{Version} & \textbf{Change} \\
+\hline
+1.0 & Initial design: \texttt{proc\_new} only supported \texttt{"n"} mode. \\
+3.0 & Added \texttt{"s"} mode for clone (fork) semantics, which ran immediately. \\
+10.1 & Removed \texttt{flags} parameter; \texttt{"s"} mode now also requires \texttt{proc\_start}. Added \texttt{proc\_setflags} for separate flag configuration. \\
+\hline
+\end{tabularx}
+
+\subsection{proc\_setflags}
+\begin{lstlisting}
+int proc_setflags(pid_t pid, uint32_t flags);
+\end{lstlisting}
+
+\subsubsection{Description}
+Sets or modifies the resource flags for a process created with \texttt{proc\_new}. This must be called before \texttt{proc\_start}. After the process has started, flags cannot be changed.
+
+\subsubsection{Parameters}
+\begin{tabularx}{\textwidth}{|l|l|X|}
+\hline
+\verb|pid| & \verb|pid_t| & PID of the process. \\
+\verb|flags| & \verb|uint32_t| & Bitmask of resource flags (e.g., \texttt{PROC\_IO\_READ}). \\
+\hline
+\end{tabularx}
+
+\subsubsection{Return Value}
+0 on success, negative error code otherwise (\texttt{-ESRCH}, \texttt{-EINVAL}, \texttt{-EPERM}).
+
+\subsubsection{Design Rationale}
+Separating flag configuration from creation allows the caller to adjust permissions based on runtime conditions. This is more flexible than fixing flags at creation time.
+
+\subsubsection{Changelog}
+Introduced in 10.1.
+
+\subsection{proc\_start}
+\begin{lstlisting}
+int proc_start(pid_t pid, const char *path, const parg_t *parg);
+\end{lstlisting}
+
+\subsubsection{Description}
+Starts a process created with \texttt{proc\_new}. Loads the executable at \texttt{path} and passes \texttt{argc}/\texttt{argv}/\texttt{envp}. The process must not have been started before. Returns 0 on success, negative error code otherwise.
+
+\subsubsection{Parameters}
+\begin{tabularx}{\textwidth}{|l|l|X|}
+\hline
+\verb|pid| & \verb|pid_t| & PID of the process. \\
+\verb|path| & \verb|const char *| & Path to the executable file. \\
+\verb|parg| & \verb|const parg_t *| & Arguments and environment. \\
+\hline
+\end{tabularx}
+
+\subsubsection{Return Value}
+0 on success, negative error code (\texttt{-ENOENT}, \texttt{-ENOEXEC}, \texttt{-EINVAL}).
+
+\subsection{proc\_terminate}
+\begin{lstlisting}
+_Noreturn void proc_terminate(void);
+\end{lstlisting}
+Terminates the calling process immediately. Does not return.
+
+\subsection{proc\_kill}
+\begin{lstlisting}
+int proc_kill(pid_t pid);
+\end{lstlisting}
+Sends \texttt{PROCSIG\_KILL} to the process. Requires appropriate privilege. Returns 0 on success, negative error code.
+
+\subsection{proc\_signal\_send}
+\begin{lstlisting}
+int proc_signal_send(pid_t pid, uint32_t signum);
+\end{lstlisting}
+Sends a signal (e.g., \texttt{PROCSIG\_TERM}) to a process. Returns 0 on success, negative error code.
+
+\subsection{Orphan Process Handling}
+When a process terminates, all its children are also terminated (they are not reparented to init). To keep a child alive after parent exits, the parent must have installed a signal handler for \texttt{PROCSIG\_CHLD} and the child must have been marked via an implementation‑defined mechanism. Default: children are killed.
+
+\subsection{proc\_getpid, proc\_getppid}
+\begin{lstlisting}
+pid_t proc_getpid(void);
+pid_t proc_getppid(void);
+\end{lstlisting}
+Return PID and parent PID of the caller.
+
+\subsection{waitpid}
+\begin{lstlisting}
+pid_t waitpid(pid_t pid, int *status, int options);
+\end{lstlisting}
+Only \texttt{WNOHANG} supported. Returns child PID, 0 if \texttt{WNOHANG} and none exited, or \texttt{-ECHILD}.
+
+\subsection{whoami}
+\begin{lstlisting}
+int whoami(void);
+\end{lstlisting}
+Returns the current ULA level (numeric).
+
+\subsection{set\_privilege}
+\begin{lstlisting}
+int set_privilege(uint32_t mask);
+\end{lstlisting}
+Requires \texttt{hlud} authorization. Sets process privilege mask.
+
+\section{Memory Management}
+
+\subsection{page\_malloc}
+\begin{lstlisting}
+void *page_malloc(uint32_t count);
+\end{lstlisting}
+
+\subsubsection{Description}
+Allocates \texttt{count} contiguous physical pages (4096 bytes each), zero-filled. Returns virtual address or \texttt{NULL}. Requires \texttt{PROC\_MEMORY} flag.
+
+\subsubsection{Parameters}
+\begin{tabularx}{\textwidth}{|l|l|X|}
+\hline
+\verb|count| & \verb|uint32_t| & Number of pages (must be > 0). \\
+\hline
+\end{tabularx}
+
+\subsubsection{Return Value}
+Success: non-NULL virtual address. Failure: \texttt{NULL}.
+
+\subsubsection{Design Rationale}
+Lowest-level memory primitive for DMA and page allocators. Zero-fill prevents information leaks.
+
+\subsubsection{Changelog}
+1.0 introduced; 5.0 added \texttt{PROC\_MEMORY} requirement; 10.2 renamed to \texttt{page\_malloc}/\texttt{page\_mfree}.
+
+\subsection{page\_mfree}
+\begin{lstlisting}
+void page_mfree(void *pages, uint32_t count);
+\end{lstlisting}
+Frees pages allocated with \texttt{page\_malloc}. Behaviour undefined if parameters mismatch.
+
+\subsection{shm\_open}
+\begin{lstlisting}
+fid_t shm_open(const char *name, int oflags, mode_t mode);
+\end{lstlisting}
+Creates/opens a shared memory object. Returns \texttt{fid\_t} or negative error.
+
+\subsection{shm\_unlink}
+\begin{lstlisting}
+int shm_unlink(const char *name);
+\end{lstlisting}
+Removes a shared memory object. Returns 0 on success, negative error.
+\section{File and Device I/O}
+
+\subsection{open}
+\begin{lstlisting}
+fid_t open(const char *type, const char *mode, const char *addr);
+\end{lstlisting}
+
+\subsubsection{Description}
+Opens a regular file (\texttt{type = "f"}) or a device (\texttt{type = "d"}). For network I/O, see \texttt{net\_*} functions (Section~\ref{sec:network}). Returns a file descriptor (\texttt{fid\_t}) that can be used with \texttt{read}, \texttt{write}, \texttt{io\_seek}, and \texttt{close}.
+
+\subsubsection{Parameters}
+\begin{tabularx}{\textwidth}{|l|l|X|}
+\hline
+\textbf{Parameter} & \textbf{Type} & \textbf{Description} \\
+\hline
+\verb|type| & \verb|const char *| & \texttt{"f"} (file) or \texttt{"d"} (device). \\
+\verb|mode| & \verb|const char *| & \texttt{"r"} (read only), \texttt{"w"} (write only, truncate/create), \texttt{"rw"} (read/write). \\
+\verb|addr| & \verb|const char *| & Path (absolute or relative) or device name (e.g., \texttt{/dev/tty0} or \texttt{"tty0"} interpreted under \texttt{/dev}). \\
+\hline
+\end{tabularx}
+
+\subsubsection{Return Value}
+Success: non-negative \texttt{fid\_t}. Failure: negative error code (\texttt{-ENOENT}, \texttt{-EPERM}, \texttt{-EINVAL}, \texttt{-EMFILE}).
+
+\subsubsection{Design Rationale}
+Uniform handling of files and devices simplifies the API. Network I/O is kept separate because its semantics differ significantly (no offsets, accept operation). The \texttt{type} string is used for type safety in the C library wrapper.
+
+\subsubsection{Notes for Callers}
+\begin{itemize}
+    \item Requires \texttt{PROC\_IO\_READ} for reading, \texttt{PROC\_IO\_WRITE} for writing.
+    \item \texttt{"w"} mode truncates the file to zero length. Use \texttt{"rw"} to preserve content.
+\end{itemize}
+
+\subsubsection{Changelog}
+\begin{tabularx}{\textwidth}{|l|X|}
+\hline
+1.0 & Introduced. \\
+5.0 & Added ULA permission checks. \\
+6.0 & Removed network type \texttt{"n"} (moved to \texttt{net\_connect}). \\
+10.1 & Added complete documentation. \\
+\hline
+\end{tabularx}
+
+\subsection{close}
+\begin{lstlisting}
+int close(const char *type, fid_t fid);
+\end{lstlisting}
+Closes the I/O object. \texttt{type} must match.
+
+\subsection{read}
+\begin{lstlisting}
+ssize_t read(const char *type, fid_t fid, void *buf, size_t count);
+\end{lstlisting}
+Reads up to \texttt{count} bytes from file/device/pipe. Returns bytes read, 0 on EOF, or negative error.
+
+\subsection{write}
+\begin{lstlisting}
+ssize_t write(const char *type, fid_t fid, const void *buf, size_t count);
+\end{lstlisting}
+Writes up to \texttt{count} bytes. Returns bytes written or negative error.
+
+\subsection{io\_seek}
+\begin{lstlisting}
+off_t io_seek(const char *type, fid_t fid, off_t offset, int whence);
+\end{lstlisting}
+Repositions file offset. \texttt{whence} = \texttt{SEEK\_SET}, \texttt{SEEK\_CUR}, \texttt{SEEK\_END}. Returns new offset or negative error.
+
+\subsection{godir, godir\_byfid, getwd}
+Working directory functions as in version 9.0.
+
+\subsection{pipe}
+\begin{lstlisting}
+fid_t pipe(pid_t to_who);
+\end{lstlisting}
+Creates a unidirectional pipe. Write end returned; read end automatically transferred to \texttt{to\_who}. Type is \texttt{"p"}.
+
+\subsection{cpfid, cpfid2, set\_flags, umask}
+Standard descriptor duplication and flag functions.
+
+\section{Network Communications}
+\label{sec:network}
+
+Network I/O is handled separately from file I/O. All functions require the \texttt{PROC\_NETWORK} flag.
+
+\subsection{net\_connect}
+\begin{lstlisting}
+fid_t net_connect(const char *protocol, const char *address);
+\end{lstlisting}
+
+\subsubsection{Description}
+Establishes a connection to a remote host. \texttt{protocol} is \texttt{"tcp"} (future: \texttt{"udp"}). \texttt{address} is \texttt{"ip:port"} (e.g., \texttt{"192.168.1.1:80"}).
+
+\subsubsection{Parameters}
+\begin{tabularx}{\textwidth}{|l|l|X|}
+\hline
+\verb|protocol| & \verb|const char *| & \texttt{"tcp"} (or \texttt{"udp"} in future). \\
+\verb|address| & \verb|const char *| & e.g., \texttt{"192.168.1.1:80"} or \texttt{"[::1]:8080"}. \\
+\hline
+\end{tabularx}
+
+\subsubsection{Return Value}
+Success: \texttt{fid\_t}. Failure: negative error (\texttt{-ECONNREFUSED}, \texttt{-EINVAL}, \texttt{-ENETUNREACH}).
+
+\subsubsection{Design Rationale}
+Separate from file I/O to avoid confusion (no file offsets, accept semantics). Cleaner API for network-specific operations.
+
+\subsubsection{Changelog}
+6.0 introduced; 10.1 added complete documentation.
+
+\subsection{net\_listen}
+\begin{lstlisting}
+fid_t net_listen(const char *protocol, const char *address);
+\end{lstlisting}
+Creates a listening socket. Returns \texttt{fid\_t} or negative error (\texttt{-EADDRINUSE}, \texttt{-EINVAL}).
+
+\subsection{net\_accept}
+\begin{lstlisting}
+fid_t net_accept(fid_t listen_fid);
+\end{lstlisting}
+Accepts an incoming connection. Returns new \texttt{fid\_t} or negative error.
+
+\subsection{net\_send}
+\begin{lstlisting}
+ssize_t net_send(fid_t fid, const void *buf, size_t count);
+\end{lstlisting}
+Sends data on a connected socket. Returns bytes sent or negative error (\texttt{-EPIPE}, \texttt{-ENOTCONN}).
+
+\subsection{net\_recv}
+\begin{lstlisting}
+ssize_t net_recv(fid_t fid, void *buf, size_t count);
+\end{lstlisting}
+Receives data from a connected socket. Returns bytes received, 0 on remote close, or negative error.
+
+\subsection{net\_disconnect}
+\begin{lstlisting}
+int net_disconnect(fid_t fid);
+\end{lstlisting}
+Closes the network connection. Returns 0 on success, negative error.
+
+\section{Event Multiplexing (hear Interface)}
+\label{sec:hear}
+
+The \texttt{hear} interface allows waiting for events from multiple sources (I/O, IPC, signals, process state).
+
+\subsection{hear\_add}
+\begin{lstlisting}
+int hear_add(fid_t fid, int events);
+\end{lstlisting}
+
+\subsubsection{Description}
+Adds \texttt{fid} to the monitored set. \texttt{events} is a bitmask of \texttt{HEAR\_IN}, \texttt{HEAR\_OUT}, \texttt{HEAR\_IPC}, \texttt{HEAR\_SIGNAL}, \texttt{HEAR\_PROC}, etc.
+
+\subsubsection{Parameters}
+\begin{tabularx}{\textwidth}{|l|l|X|}
+\hline
+\verb|fid| & \verb|fid_t| & File/pipe/socket/process to monitor. \\
+\verb|events| & \verb|int| & Bitmask of event types. \\
+\hline
+\end{tabularx}
+
+\subsubsection{Return Value}
+0 on success, negative error otherwise.
+
+\subsubsection{Design Rationale}
+Unified event notification simplifies application design. One interface for all async events.
+
+\subsubsection{Changelog}
+6.0 introduced; 10.1 added complete documentation.
+
+\subsection{hear\_remove}
+\begin{lstlisting}
+int hear_remove(fid_t fid);
+\end{lstlisting}
+Removes \texttt{fid} from the monitored set.
+
+\subsection{hear\_filter}
+\begin{lstlisting}
+int hear_filter(fid_t fid, int new_events);
+\end{lstlisting}
+Changes the event mask for an existing source.
+
+\subsection{hear\_wait}
+\begin{lstlisting}
+int hear_wait(void *events_out, int max_events, int timeout_ms);
+\end{lstlisting}
+
+\subsubsection{Description}
+Waits for events among registered sources. Fills \texttt{events\_out} with up to \texttt{max\_events} event structures. Each event contains \texttt{handle}, \texttt{type}, and \texttt{userdata} (if set).
+
+\subsubsection{Parameters}
+\begin{tabularx}{\textwidth}{|l|l|X|}
+\hline
+\verb|events_out| & \verb|void *| & Pointer to array of \texttt{struct hear\_event}. \\
+\verb|max_events| & \verb|int| & Maximum number of events to return. \\
+\verb|timeout_ms| & \verb|int| & Timeout in milliseconds (0 = non-blocking, -1 = infinite). \\
+\hline
+\end{tabularx}
+
+\subsubsection{Return Value}
+Number of events received, 0 on timeout, negative error on failure.
+
+\subsubsection{Example}
+\begin{lstlisting}
+fid_t fd1 = open("f", "r", "/tmp/a");
+fid_t fd2 = open("f", "r", "/tmp/b");
+hear_add(fd1, HEAR_IN, NULL);
+hear_add(fd2, HEAR_IN, NULL);
+struct hear_event ev[4];
+int n = hear_wait(ev, 4, 1000);
+for (int i = 0; i < n; i++) {
+    if (ev[i].handle == fd1) read("f", fd1, ...);
+    else if (ev[i].handle == fd2) read("f", fd2, ...);
+}
+\end{lstlisting}
+\section{Inter-Process Communication (IPC)}
+
+SLFD provides synchronous message passing between threads. Each thread has a kernel‑managed message queue.
+
+\subsection{System Calls}
+\begin{lstlisting}
+int sys_ipc_send(thread_id target, ipc_message_t *msg);
+int sys_ipc_receive(ipc_message_t *msg);
+\end{lstlisting}
+
+\subsubsection{Description}
+\texttt{sys\_ipc\_send} sends \texttt{msg} to the target thread. The kernel fills \texttt{source} and \texttt{timestamp}. If the target's queue is full, the caller may block (implementation‑defined). \texttt{sys\_ipc\_receive} retrieves the next message from the caller's queue. If no message is available, the call blocks until one arrives.
+
+\subsubsection{Return Value}
+0 on success, negative error code otherwise.
+
+\subsection{C Library Wrappers}
+\begin{lstlisting}
+int ipc_send_msg(uint32_t type, uint32_t flags, uint32_t receiver_pid,
+                 uint32_t data_len, const void *data);
+int ipc_receive_msg(ipc_message_t *msg, int timeout_ms);
+\end{lstlisting}
+Wrapper functions for convenience. \texttt{ipc\_send\_msg} sends to the main thread of the target process. \texttt{ipc\_receive\_msg} supports timeout (0 = non‑blocking, -1 = infinite).
+
+\subsection{Error Codes for IPC}
+\texttt{-EAGAIN}, \texttt{-ETIMEDOUT}, \texttt{-EMSGSIZE}, \texttt{-ENOMSG}.
+
+\subsection{IPC Performance Tuning (Implementation‑Defined)}
+\begin{lstlisting}
+int ipc_set_buffer(thread_id target, void *buffer, size_t size);
+int ipc_use_buffer(thread_id target, void *buffer, size_t size);
+\end{lstlisting}
+Optional functions for shared memory message caching. May be no‑ops.
+
+\section{Thread Management}
+\label{sec:threads}
+
+\subsection{thread\_create}
+\begin{lstlisting}
+int thread_create(thread_id *tid, void *(*start)(void*), void *arg);
+\end{lstlisting}
+Creates a new thread that starts executing \texttt{start(arg)}. Inherits signal mask and ULA privilege. Returns 0 on success.
+
+\subsection{thread\_join}
+\begin{lstlisting}
+int thread_join(thread_id tid, void **retval);
+\end{lstlisting}
+Waits for thread termination. Stores exit value in \texttt{retval}.
+
+\subsection{thread\_exit}
+\begin{lstlisting}
+_Noreturn void thread_exit(void *retval);
+\end{lstlisting}
+Terminates the calling thread.
+
+\subsection{Mutexes and Condition Variables}
+Standard POSIX‑style primitives:
+\begin{lstlisting}
+typedef struct mutex { /* opaque */ } mutex_t;
+int mutex_init(mutex_t *mutex);
+int mutex_lock(mutex_t *mutex);
+int mutex_unlock(mutex_t *mutex);
+int mutex_destroy(mutex_t *mutex);
+
+typedef struct cond { /* opaque */ } cond_t;
+int cond_init(cond_t *cond);
+int cond_wait(cond_t *cond, mutex_t *mutex);
+int cond_signal(cond_t *cond);
+int cond_broadcast(cond_t *cond);
+int cond_destroy(cond_t *cond);
+\end{lstlisting}
+All return 0 on success, negative error otherwise.
+
+\section{Error Codes}
+\label{sec:errors}
+
+Full list of error codes (as in version 9.0). Include all codes with descriptions. I'll provide the complete table (longtable).
+
+\begin{longtable}{|l|l|p{0.55\textwidth}|}
+\hline
+\textbf{Symbolic Name} & \textbf{Value} & \textbf{Description} \\
+\hline
+\endfirsthead
+\hline
+\multicolumn{3}{|c|}{\textit{Continued from previous page}} \\
+\hline
+\textbf{Symbolic Name} & \textbf{Value} & \textbf{Description} \\
+\hline
+\endhead
+\hline
+\multicolumn{3}{|r|}{\textit{Continued on next page}} \\
+\endfoot
+\endlastfoot
+
+\hline
+\verb|-EPERM| & 1 & Permission denied. \\
+\verb|-ENOENT| & 2 & No such file or directory. \\
+\verb|-ESRCH| & 3 & No such process. \\
+\verb|-EINTR| & 4 & Interrupted system call. \\
+\verb|-EIO| & 5 & I/O error. \\
+\verb|-ENXIO| & 6 & No such device or address. \\
+\verb|-E2BIG| & 7 & Argument list too long. \\
+\verb|-ENOEXEC| & 8 & Exec format error. \\
+\verb|-EBADF| & 9 & Bad file descriptor. \\
+\verb|-ECHILD| & 10 & No child process. \\
+\verb|-EAGAIN| & 11 & Resource temporarily unavailable. \\
+\verb|-ENOMEM| & 12 & Out of memory. \\
+\verb|-EACCES| & 13 & Permission denied (file access). \\
+\verb|-EFAULT| & 14 & Bad address. \\
+\verb|-ENOTBLK| & 15 & Block device required. \\
+\verb|-EBUSY| & 16 & Device or resource busy. \\
+\verb|-EEXIST| & 17 & File exists. \\
+\verb|-EXDEV| & 18 & Cross-device link. \\
+\verb|-ENODEV| & 19 & No such device. \\
+\verb|-ENOTDIR| & 20 & Not a directory. \\
+\verb|-EISDIR| & 21 & Is a directory. \\
+\verb|-EINVAL| & 22 & Invalid argument. \\
+\verb|-ENFILE| & 23 & File table overflow. \\
+\verb|-EMFILE| & 24 & Too many open files. \\
+\verb|-ENOTTY| & 25 & Inappropriate I/O control. \\
+\verb|-ETXTBSY| & 26 & Text file busy. \\
+\verb|-EFBIG| & 27 & File too large. \\
+\verb|-ENOSPC| & 28 & No space left on device. \\
+\verb|-ESPIPE| & 29 & Illegal seek. \\
+\verb|-EROFS| & 30 & Read-only file system. \\
+\verb|-EMLINK| & 31 & Too many links. \\
+\verb|-EPIPE| & 32 & Broken pipe. \\
+\verb|-EDOM| & 33 & Math argument out of domain. \\
+\verb|-ERANGE| & 34 & Result too large. \\
+\verb|-EDEADLK| & 35 & Deadlock avoided. \\
+\verb|-ENAMETOOLONG| & 36 & File name too long. \\
+\verb|-ENOLCK| & 37 & No locks available. \\
+\verb|-ENOSYS| & 38 & Function not implemented. \\
+\verb|-ENOTEMPTY| & 39 & Directory not empty. \\
+\verb|-ELOOP| & 40 & Too many symbolic links. \\
+\verb|-EWOULDBLOCK| & 41 & Same as -EAGAIN. \\
+\verb|-ENOMSG| & 42 & No message of desired type. \\
+\verb|-EIDRM| & 43 & Identifier removed. \\
+\verb|-ETIMEDOUT| & 44 & Connection timed out. \\
+\verb|-ERESTART| & 45 & Restart syscall (internal). \\
+\verb|-EMSGSIZE| & 46 & Message too long. \\
+\verb|-EADDRINUSE| & 47 & Address already in use. \\
+\verb|-ECONNREFUSED| & 48 & Connection refused. \\
+\verb|-ECONNRESET| & 49 & Connection reset by peer. \\
+\verb|-ENOTCONN| & 50 & Socket not connected. \\
+\verb|-ETIME| & 51 & Timer expired. \\
+\verb|-ECANCELED| & 52 & Operation canceled. \\
+\hline
+\end{longtable}
+
+\appendix
+
+\section{ULA: User Level Assessment}
+\label{app:ula}
+
+This appendix defines the ULA privilege model. It replaces traditional Unix UID/GID and mode\_t with a level-based bitmask system.
+
+\subsection{Privilege Levels}
+\begin{lstlisting}
+#define LV_HIGHEST   0
+#define LV_GENERAL   1
+#define LV_LOW       2
+#define LV_GETTING   3
+\end{lstlisting}
+
+\subsection{File Attribute Mask Layout}
+The 32-bit mask:
+\begin{itemize}
+    \item Bits 31–24: creator level
+    \item Bits 23–16: caller level
+    \item Bits 15–8: flags (EXEC, HIDDEN, ARCHIVE)
+    \item Bits 7–4: file type (FILE, DIR, LINK, DEV)
+    \item Bits 3–0: reserved
+\end{itemize}
+
+\subsection{Access Control Matrix}
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabularx}{\textwidth}{|l|X|c|c|c|}
+\hline
+\textbf{Operation} & \textbf{LV\_HIGHEST} & \textbf{LV\_GENERAL} & \textbf{LV\_LOW} & \textbf{LV\_GETTING} \\
+\hline
+\texttt{proc\_kill}(any process) & Yes & No & No & No \\
+\texttt{proc\_kill}(own process) & Yes & Yes & Yes & Yes \\
+\texttt{proc\_new("s", ...)} (clone) & Yes & Yes & No & No \\
+\texttt{proc\_signal\_send}(any) & Yes & No & No & No \\
+\texttt{open("d", ...)} (any device) & Yes & Limited\textsuperscript{a} & No & Limited\textsuperscript{b} \\
+\texttt{open("f", "w")} on system dirs & Yes & No & No & No \\
+\texttt{open("f", "r")} on system files & Yes & No\textsuperscript{c} & No & Yes\textsuperscript{d} \\
+\texttt{proc\_new("n", ...)} & Yes & Yes & Yes & Yes \\
+\texttt{getwd}, \texttt{stat}, \texttt{mkdir} & Yes & Own files only & Own files only (restricted) & Own work dir\textsuperscript{e} \\
+\hline
+\end{tabularx}
+\end{table}
+Notes:
+\begin{enumerate}
+    \item \texttt{LV\_GENERAL} may open non‑sensitive devices (e.g., \texttt{/dev/tty}) but not raw block devices.
+    \item \texttt{LV\_GETTING} may open devices required for its service (e.g., \texttt{/dev/null}) but not console.
+    \item \texttt{LV\_GENERAL} cannot read system config files (e.g., \texttt{/conf/shadow}).
+    \item \texttt{LV\_GETTING} may read specific system files as defined by service manifest.
+    \item \texttt{LV\_GETTING} uses service‑specific working directory (e.g., \texttt{/usr/myapp}) and cannot access others' home.
+\end{enumerate}
+
+\subsection{Textual Database Example}
+\begin{lstlisting}
+# /conf/users
+alice:{staff-lvgeneral}+{audio-lvlow}
+bob:{staff-lvlow}
+root:{wheel-lvhighest}
+# /conf/groups
+staff:500:alice,bob
+wheel:0:root
+audio:300:alice
+\end{lstlisting}
+
+\subsection{Changelog}
+\begin{tabularx}{\textwidth}{|l|X|}
+\hline
+1.0 & Initial design. \\
+3.0 & Added access control matrix. \\
+5.0 & Bitmask layout introduced. \\
+7.0 & Added textual database example. \\
+9.0 & Added rationale. \\
+10.1 & Moved to Appendix A. \\
+\hline
+\end{tabularx}
+
+\section{SLFD Free Desktop (SLFD FD)}
+\label{app:sfd}
+
+This appendix defines the root directory layout for SLFD‑based systems.
+
+\subsection{Root Directory Structure}
+\begin{description}
+    \item[\texttt{/bin}] Essential system binaries (e.g., \texttt{sh}, \texttt{ls}).
+    \item[\texttt{/dev}] Device special files.
+    \item[\texttt{/conf}] System and application configuration files (replaces \texttt{/etc}).
+    \item[\texttt{/usr}] Combined user and system resources (user home directories + system binaries/libraries).
+    \item[\texttt{/lib}] Common libraries (may be symlink to \texttt{/usr/lib}).
+    \item[\texttt{/tmp}] Temporary files (cleared on reboot).
+    \item[\texttt{/sys}] System files (e.g., \texttt{/sys/kernel/debug}).
+    \item[\texttt{/mnt}] Mount point for devices.
+\end{description}
+
+\subsection{Rationale}
+Avoids FHS and freedesktop.org complexity. All configuration in \texttt{/conf}, all data under \texttt{/usr}, essential binaries in \texttt{/bin}.
+
+\subsection{Example}
+\begin{lstlisting}
+/
++-- bin/
+|   +-- sh
+|   +-- ls
++-- dev/
+|   +-- tty0
+|   +-- random
+|   +-- null
++-- conf/
+|   +-- passwd
+|   +-- shadow
+|   +-- slfd.conf
+|   +-- wahlu
++-- usr/
+|   +-- bin/    (optional symlink to /bin)
+|   +-- lib/
+|   +-- alice/
+|   +-- bob/
+|   +-- ...
++-- mnt/
+|   +-- dev1/
+|   +-- dev2/
+|   +-- ...
++-- sys/
+|   +-- ...
++-- lib/        (optional symlink to usr/lib)
++-- tmp/
+\end{lstlisting}
+
+\subsection{Changelog}
+\begin{tabularx}{\textwidth}{|l|X|}
+\hline
+1.0 & Initial: \texttt{/bin}, \texttt{/dev}, \texttt{/etc}, \texttt{/usr}, \texttt{/lib}, \texttt{/tmp}. \\
+2.0 & Replaced \texttt{/etc} with \texttt{/conf}. \\
+3.0 & Added \texttt{/sys}, \texttt{/mnt}. \\
+5.0 & Renamed to SLFD FD. \\
+10.1 & Moved to Appendix B. \\
+\hline
+\end{tabularx}
+
+\section{SLFD Shell Standard (3S)}
+\label{app:3s}
+
+Non‑mandatory shell standard. Commands:
+\begin{longtable}{|l|p{0.7\textwidth}|}
+\hline
+\textbf{Command} & \textbf{Description} \\
+\hline
+\texttt{lookup [path]} & List directory contents. \\
+\texttt{goto <path>} & Change directory. \\
+\texttt{where} & Print current directory. \\
+\texttt{create.dir <path>} & Create directory. \\
+\texttt{del.dir <path>} & Remove empty directory. \\
+\texttt{del <path>} & Remove file/link. \\
+\texttt{connect <file...>} & Concatenate files to stdout. \\
+\texttt{count [options] [file]} & Count lines/words/bytes. \\
+\texttt{head [-n N] [file]} & Output first N lines. \\
+\texttt{tail [-n N] [file]} & Output last N lines. \\
+\texttt{filter <pattern> [file...]} & Search for pattern. \\
+\texttt{pm [options]} & Process management. \\
+\texttt{pm kill <PID> [signal]} & Send signal. \\
+\texttt{env [var[=value]...]} & Environment. \\
+\texttt{sysinfo} & System information. \\
+\texttt{info-of <command>} & Manual page. \\
+\hline
+\end{longtable}
+
+Extended ULA commands: \texttt{ula file-change}, \texttt{ula user-change}.
+
+\subsection{Non‑mandatory Status}
+This standard is optional. A shell may claim 3S compliance if it implements these commands.
+
+\subsection{Changelog}
+\begin{tabularx}{\textwidth}{|l|X|}
+\hline
+1.0 & Initial. \\
+4.0 & Updated to match SLFD FD naming. \\
+5.0 & Added \texttt{pm}, \texttt{pm kill}. \\
+10.1 & Moved to Appendix C. \\
+\hline
+\end{tabularx}
+
+\section{Kernel Primitives and System Call Interfaces}
+\label{app:syscalls}
+
+This appendix lists mandatory and optional kernel primitives.
+
+\subsection{Mandatory Kernel Primitives}
+Following the MINIX 3 model, the kernel itself provides only the minimal
+primitives needed to manipulate process control blocks (PCBs) and pass
+messages. Higher-level process management policy (validation, sequencing,
+signal delivery semantics) is implemented by a user-space process server;
+see \S\ref{app:syscalls}.2.
+\begin{longtable}{|l|p{0.65\textwidth}|}
+\hline
+\textbf{Primitive} & \textbf{Description} \\
+\hline
+\texttt{\detokenize{sys_pcb_alloc}} & Allocate a PCB slot and PID; does not load or start execution. Used internally by the process server. \\
+\texttt{\detokenize{sys_pcb_free}} & Release a PCB slot. Used internally by the process server. \\
+\texttt{sys\_mm\_alloc\_pages} & Allocate physical pages (backing \texttt{page\_malloc}). \\
+\texttt{sys\_mm\_free\_pages} & Free pages (backing \texttt{page\_mfree}). \\
+\texttt{sys\_shm\_open} & Open shared memory. \\
+\texttt{sys\_shm\_unlink} & Remove shared memory. \\
+\texttt{sys\_ipc\_send} & Send IPC message. \\
+\texttt{sys\_ipc\_receive} & Receive IPC message. \\
+\texttt{sys\_getrlimit} & Get resource limits. \\
+\texttt{sys\_setrlimit} & Set resource limits. \\
+\texttt{sys\_sleep\_pro} & Sleep for seconds. \\
+\texttt{sys\_timer\_crate} & Create timer. \\
+\texttt{sys\_get\_fucktimer} & Get monotonic time. \\
+\texttt{sys\_settimeofday} & Set real‑time clock. \\
+\texttt{sys\_info\_sys} & Fill \texttt{utsname}. \\
+\texttt{sys\_getrandom} & Fill buffer with random. \\
+\texttt{sys\_hlud\_request} & Request elevation. \\
+\hline
+\end{longtable}
+
+\subsection{Optional Primitives}
+These may be implemented as user‑space servers.
+\begin{longtable}{|p{0.35\textwidth}|p{0.55\textwidth}|}
+\hline
+\textbf{Function} & \textbf{Typical Implementation} \\
+\hline
+\texttt{proc\_new}, \texttt{proc\_setflags}, \texttt{proc\_start}, \texttt{proc\_terminate}, \texttt{proc\_kill}, \texttt{proc\_signal\_send}, \texttt{proc\_getpid}, \texttt{proc\_getppid}, \texttt{waitpid}, \texttt{whoami}, \texttt{set\_privilege} & Process management server (PM‑equivalent, per the MINIX 3 model)... \\
+\texttt{proc\_new}, \texttt{proc\_setflags}, \texttt{proc\_start}, \texttt{proc\_terminate}, \texttt{proc\_kill}, \texttt{proc\_signal\_send}, \texttt{proc\_getpid}, \texttt{proc\_getppid}, \texttt{waitpid}, \texttt{whoami}, \texttt{set\_privilege} & Process management server (PM‑equivalent, per the MINIX 3 model). Implements all argument validation, ULA privilege checks, and multi‑step sequencing; internally uses \texttt{sys\_pcb\_alloc}/\texttt{sys\_pcb\_free} for the actual kernel-level PCB manipulation. Clients reach this server over IPC, never via direct trap. \\
+\texttt{\detokenize{open, close, read, write, io_seek}} & File system server. \\
+\texttt{\detokenize{godir, godir_byfid, getwd}} & File system server. \\
+\texttt{pipe} & IPC or kernel service. \\
+\texttt{cpfid}, \texttt{cpfid2} & Kernel or server. \\
+\texttt{set\_flags} & Kernel. \\
+\texttt{umask} & User‑space library. \\
+\texttt{dev\_control} & Device driver server. \\
+\texttt{chmod}, \texttt{chown}, \texttt{stat} & File system server. \\
+\texttt{mkdir}, \texttt{rmdir} & File system server. \\
+\texttt{symlink}, \texttt{readlink} & File system server. \\
+\texttt{mount}, \texttt{umount} & File system server. \\
+\texttt{reboot} & System management server. \\
+\texttt{fs\_*} & File system server. \\
+\texttt{thread\_*}, mutex/cond & Library or kernel-assisted. \\
+\texttt{cp0\_*}, \texttt{aio\_*} & Implementation-defined. \\
+\texttt{\detokenize{ipc_set_buffer}}, \texttt{\detokenize{ipc_use_buffer}} & Implementation-defined. \\
+\texttt{hear\_*} & System call or event server. \\
+\texttt{net\_*} & Network server. \\
+\hline
+\end{longtable}
+
+\subsection{Changelog}
+\begin{tabularx}{\textwidth}{|l|X|}
+\hline
+1.0 & Initial. \\
+3.0 & Added \texttt{sys\_proc\_signal\_send}. \\
+5.0 & Added ULA primitives. \\
+6.0 & Added hear and network. \\
+7.0 & Split into mandatory/optional. \\
+10.1 & Corrected names, moved to Appendix D. \\
+10.2 & Adopted MINIX 3 model: replaced monolithic \texttt{sys\_proc\_*} kernel primitives with minimal \texttt{sys\_pcb\_alloc}/\texttt{sys\_pcb\_free}; process management (\texttt{proc\_*}, \texttt{waitpid}, \texttt{whoami}, \texttt{set\_privilege}) moved to Optional Primitives as a user‑space process server. \\
+\hline
+\end{tabularx}
+
+\end{document}

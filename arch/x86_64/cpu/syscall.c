@@ -36,8 +36,8 @@
  * Index 4 (0x20): User data segment (with RPL=3 becomes 0x23)
  */
 #define KERNEL_CS   0x08        /* Kernel code segment (ring 0) */
-#define USER_CS     0x1B        /* User code segment (ring 3 when RPL=3) */
-#define USER_DS     0x23        /* User data segment (ring 3 when RPL=3) */
+#define USER_CS     0x23        /* User code segment (ring 3 when RPL=3) */
+#define USER_DS     0x1B        /* User data segment (ring 3 when RPL=3) */
 
 /* Function prototype for the assembly syscall entry point */
 extern void syscall_entry(void);

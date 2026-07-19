@@ -140,11 +140,11 @@ do_user_irq:
 
     # PREVENTATIVE FIX: 
     # Before dropping back to Ring 3, you must restore the segment registers 
-    # to your User Data selector (typically 0x23). If you leave them at 0x10, 
+    # to your User Data selector (typically 0x1B). If you leave them at 0x10, 
     # the Ring 3 user program will trigger a GP fault the moment it tries to read/write memory.
     #
-    # Uncomment the lines below and change 0x23 to your GDT's User Data Selector:
-   	movw $0x23, %ax
+    # Uncomment the lines below and change 0x1B to your GDT's User Data Selector:
+   	movw $0x1B,%ax  # 0x1B
   	movw %ax, %ds
   	movw %ax, %es
    	movw %ax, %fs

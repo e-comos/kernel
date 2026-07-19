@@ -6,8 +6,8 @@
       0x00  null
       0x08  kernel code  (ring 0, 64-bit)
       0x10  kernel data  (ring 0)
-      0x18  user   code  (ring 3, 64-bit)   selector 0x1B (|3)
-      0x20  user   data  (ring 3)            selector 0x23 (|3)
+      0x18  user   code  (ring 3, 64-bit)   selector 0x23 (|3)
+      0x20  user   data  (ring 3)            selector 0x1B (|3)
       0x28  TSS low  (16 bytes, two GDT slots)
       0x30  TSS high
 
@@ -97,10 +97,12 @@ void gdt_init(void) {
     gdt_set_gate(1, 0, 0xFFFFFu, 0x9Au, 0xA0u); /* 0xA0 = G=1, L=1 (64-bit) */
     /* Kernel data: ring 0 */
     gdt_set_gate(2, 0, 0xFFFFFu, 0x92u, 0xC0u);
-    /* User code: 64-bit, ring 3 */
-    gdt_set_gate(3, 0, 0xFFFFFu, 0xFAu, 0xA0u);
-    /* User data: ring 3 */
-    gdt_set_gate(4, 0, 0xFFFFFu, 0xF2u, 0xC0u);
+    /* User data: ring 3 (Index 3) */
+    /* Access: 0xF2 (Data), Granularity: 0xC0 */
+    gdt_set_gate(3, 0, 0xFFFFFFFFu, 0xF2u, 0xC0u);
+    /* User code: ring 3 (Index 4) */
+    /* Access: 0xFA (Code), Granularity: 0xA0 (Long Mode) */
+    gdt_set_gate(4, 0, 0xFFFFFFFFu, 0xFAu, 0xA0u);
 
     /* TSS Setup (Maps directly onto gdt[5] and gdt[6]) */
     uint64_t tss_base = (uint64_t)(uintptr_t)&tss;

@@ -13,8 +13,8 @@
 
 
 /* GDT segment selectors for user mode */
-#define USER_CODE_SELECTOR 0x1B   /* index 3, DPL=3, 64-bit code */
-#define USER_DATA_SELECTOR 0x23   /* index 4, DPL=3, data         */
+#define USER_CODE_SELECTOR 0x23   /* index 3, DPL=3, 64-bit code */
+#define USER_DATA_SELECTOR 0x1B   /* index 4, DPL=3, data         */
 
 extern uint8_t _binary_payload_init_bin_start[];
 extern uint8_t _binary_payload_init_bin_end[];

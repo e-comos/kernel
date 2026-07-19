@@ -27,8 +27,8 @@ asm_switch_to_user_mode:
     /* Align user RSP to 16-byte boundary (ABI requirement) */
     andq    $~0xF, %rsi
 
-    /* Switch data segment registers to user selectors (0x23, RPL=3) */
-    movw    $0x23, %ax
+    /* Switch data segment registers to user selectors (0x1B, RPL=3) */
+    movw    $0x1B, %ax
     movw    %ax, %ds
     movw    %ax, %es
     movw    %ax, %fs
@@ -46,7 +46,7 @@ asm_switch_to_user_mode:
      */
 
     /* 5. SS */
-    pushq   $0x23
+    pushq   $0x1B
 
     /* 4. RSP */
     pushq   %rsi
@@ -55,7 +55,7 @@ asm_switch_to_user_mode:
     pushq   $0x3202
 
     /* 2. CS */
-    pushq   $0x1B
+    pushq   $0x23
 
     /* 1. RIP */
     pushq   %rdi

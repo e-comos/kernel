@@ -190,7 +190,7 @@ isr_common_stub:
 	movq %r12, %rsp
 	
     /* Restore caller segments (for non-fatal return) */
-    movw $0x23, %ax
+    movw $0x1B, %ax
     movw %ax, %ds
     movw %ax, %es
     movw %ax, %fs
@@ -246,7 +246,7 @@ syscall_stub:
     /* Set IOPL=3 in saved RFLAGS (at RSP+152 after SAVE_REGS+int_no+err_code) */
     orq  $0x3000, 152(%rsp)
 
-    movw $0x23, %ax
+    movw $0x1B, %ax
     movw %ax, %ds
     movw %ax, %es
     movw %ax, %fs
