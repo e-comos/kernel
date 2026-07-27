@@ -61,12 +61,17 @@ SECTIONS
     /* Uninitialized data and stack (BSS) */
     .bss : ALIGN(4K) {
         *(.bss)
+        *(.bss.*)
         *(COMMON)
     }
-    
+
+	.paging : ALIGN(4K) {
+        *(.paging)
+    }    
+
     /* Symbol for kernel end address (used by C code) */
     _kernel_end = .;
-    
+
     /* Discard debugging and unnecessary sections */
     /DISCARD/ : {
         *(.comment)

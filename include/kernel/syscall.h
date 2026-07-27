@@ -28,6 +28,7 @@
 #define SYS_IRQ_WAIT        5
 #define SYS_IRQ_GET_COUNT   6
 #define SYS_IRQ_RESET_COUNT 7
+#define SYS_THREAD_CRATE    8
 
 #define BLOCK_REASON_NONE     0
 #define BLOCK_REASON_IRQ_WAIT 1

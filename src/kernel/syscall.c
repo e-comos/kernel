@@ -178,6 +178,8 @@ long syscall_handler(uint32_t num, uint32_t arg1, uint32_t arg2, uint32_t arg3) 
     case SYS_IRQ_RESET_COUNT:
         if (arg1 >= MAX_IRQS) return -1;
         { uint32_t old = irq_occurrence_count[arg1]; irq_occurrence_count[arg1] = 0; return old; }
+    case SYS_THREAD_CRATE:
+        return sched_create_thread((void (*)(void))(uintptr_t)arg1);
     default:
         return -1;
     }

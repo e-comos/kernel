@@ -117,6 +117,7 @@ my $config = {
             'src/printkit/print.c',
             'src/time/time.c',
             'src/user_space/user_mode.c',
+            'src/user_space/driver_loader.c',
             'klibc/libstring/string.c',
             'arch/x86_64/cpu/gdt.c',
             'arch/x86_64/interrupts/idt.c',
@@ -132,6 +133,7 @@ my $config = {
             'boot/long_mode_switch.s',
             'src/arch/x86_64/switch_to_user_mode.S',
             'arch/x86_64/cpu/syscall_entry.S',  # SYSCALL entry point
+			'src/arch/x86_64/sched_cpu_switch_to.S',
         ],
         
         # Additional assembly objects referenced in build
@@ -775,5 +777,3 @@ HELP
 # Execute the build system with appropriate exit code
 # Exit code 0 indicates success, 1 indicates failure
 exit(main() ? 0 : 1);
-
-

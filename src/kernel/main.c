@@ -18,12 +18,10 @@
 #include <kernel/debug.h>
 #include <user_space/user_mode.h>
 #include <kernel/early_init.h>
+#include <user_space/driver_loader.h>
 
 extern void gdt_init(void);
 extern void enable_syscall_mechanism(void);  /* SYSCALL/SYSRET support */
-#ifndef IPC_OK
-#define IPC_OK 0
-#endif
 void kernel_main(void* boot_info) {
     /* Interrupts are disabled on entry from _start */
 
@@ -45,24 +43,34 @@ void kernel_main(void* boot_info) {
         kernel_panic("mmInit failed — no usable memory");
     }
     mm_enable_paging();
-
-    /* Phase 3: Interrupts */
+	
+	/* Phase 3: Scheds */
+	sched_init();
+	
+    /* Phase 4: Interrupts */
     print_str("Interrupt handling...\n", 0x1F);
     idt_init();
     irq_remap();
     irq_init_timer();
 
-    /* Phase 4: IPC + syscall IRQ subsystem */
+    /* Phase 5: IPC + syscall IRQ subsystem */
     print_str("IPC + syscall...\n", 0x1F);
     ipc_init();
     enable_sse();
+    enable_nxe(); /* Enable NX (No-Execute) bit support in IA32_EFER MSR */
     syscall_irq_init();
     
-    /* Phase 5: Create init service thread */
+    /* Phase 5.1: Load user-space driver from GRUB module */
+    print_str("Loading driver from GRUB module...\n", 0x1F);
+    if (load_driver_from_multiboot(boot_info) != 0) {
+        print_str("Warning: Driver module load failed or skipped\n", 0x1F);
+    }
+
+    /* Phase 6: Create init service thread */
     print_str("Creating init service...\n", 0x1F);
     int result = load_init_service_to_user_mode();
     if (result < 0) {
-		kernel_panic("Failed to load init-service for system init , kernel abort");
+        kernel_panic("Failed to load init-service for system init , kernel abort");
     }
 
     print_str("init-service is backed from user mode", 0x0F);

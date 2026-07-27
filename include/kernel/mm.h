@@ -18,6 +18,9 @@
 #define MAX_PAGES       MAX_PHYS_PAGES
 #define KERNEL_BASE     0x100000u
 
+#define MULTIBOOT_TAG_TYPE_END    0
+#define MULTIBOOT_TAG_TYPE_MODULE 3
+
 /* Physical memory window managed */
 #define PHYS_BASE      0x100000ULL
 #define PHYS_SIZE      (MAX_PAGES * (uint64_t)PAGE_SIZE)  /* 16 MB */

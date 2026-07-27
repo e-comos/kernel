@@ -15,7 +15,7 @@
 #include <kernel/printkit/print.h>
 #include <stdint.h>
 #include <klibc/string.h>
-
+#include <user_space/driver_loader.h>
 /* Forward declarations */
 extern void idt_set_gate(uint8_t num, uint64_t base, uint16_t sel, uint8_t flags);
 extern void isr14(void);  /* Page fault handler from isr.s */
@@ -75,10 +75,10 @@ static uintptr_t heap_end = 0;
 /* Each PT covers 512 × 4 KB = 2 MB.  We need 8 PTs for 16 MB. */
 #define NUM_PTS 8u
 
-uint64_t pml4[PML4_ENTRIES]  __attribute__((aligned(PAGE_SIZE)));
-uint64_t pdpt[PDPT_ENTRIES]  __attribute__((aligned(PAGE_SIZE)));
-uint64_t pd[PD_ENTRIES]      __attribute__((aligned(PAGE_SIZE)));
-uint64_t pt[NUM_PTS][PT_ENTRIES] __attribute__((aligned(PAGE_SIZE)));
+uint64_t pml4[PML4_ENTRIES]  __attribute__((section(".paging"), aligned(PAGE_SIZE)));
+uint64_t pdpt[PDPT_ENTRIES]  __attribute__((section(".paging"), aligned(PAGE_SIZE)));
+uint64_t pd[PD_ENTRIES]      __attribute__((section(".paging"), aligned(PAGE_SIZE)));
+uint64_t pt[NUM_PTS][PT_ENTRIES] __attribute__((section(".paging"), aligned(PAGE_SIZE)));
 
 /* ------------------------------------------------------------------ */
 /* Panic helper (no dependency on heap)                               */
@@ -241,7 +241,7 @@ static void build_page_tables(void) {
     pdpt[0] = (uint64_t)(uintptr_t)pd | PTE_PRESENT | PTE_WRITABLE | PTE_USER;
 
     /* PD[i] → pt[i]  (each covers 2 MB) */
-    /* Initialize all PD entries: PD[0..7] point to PTs, others are 0 (will be created dynamically) */
+    /* Initialize all PD entries: PD[0..7] point to PTs, others are 0 */
     for (uint32_t i = 0; i < NUM_PTS; i++) {
         pd[i] = (uint64_t)(uintptr_t)pt[i] | PTE_PRESENT | PTE_WRITABLE | PTE_USER;
 
@@ -256,14 +256,14 @@ static void build_page_tables(void) {
                 flags |= PTE_GLOBAL;
             }
             
+            /* MODIFIED: Do not map user space so demand paging triggers! */
+            if (phys >= 0x400000) {
+                flags &= ~PTE_PRESENT;
+            }
+            
             pt[i][j] = phys | flags;
         }
     }
-    /* PD[8..511] remain 0 - they will be created dynamically by mm_map_page */
-
-    /* Pre-map pages for page table structures themselves (PML4, PDPT, PD, PT) */
-    /* These are at fixed addresses: pml4=0x..., pdpt=0x..., pd=0x..., pt=0x... */
-    /* Since they're already identity-mapped by the above code, we just ensure they're marked present */
     
     page_tables_ready = 1;
 }
@@ -344,7 +344,7 @@ memory_status mm_init(boot_params *boot_params) {
         }
     }
 
-    /* Step 5: re-mark kernel image pages as used */
+	/* Step 5: re-mark kernel image pages as used */
     if (kern_start >= PHYS_BASE && kern_end > kern_start) {
         uint32_t k_first = (uint32_t)((kern_start - PHYS_BASE) / PAGE_SIZE);
         uint32_t k_last  = (uint32_t)((kern_end - PHYS_BASE + PAGE_SIZE - 1u)
@@ -359,8 +359,16 @@ memory_status mm_init(boot_params *boot_params) {
 
 find_first:
     /* Step 6: find first free page */
+	/* NEW FIX: Forcefully protect the first 2MB of Physical RAM.
+     * This safeguards the kernel, the UEFI/Multiboot info structures, 
+     * and any modules GRUB loaded immediately after the kernel.
+     */
+    for (uint32_t i = 0; i < 512; i++) {
+        bitmap_set(i);
+    }
     next_free_page = MAX_PAGES;
-    for (uint32_t i = 0; i < MAX_PAGES; i++) {
+    
+	for (uint32_t i = 0; i < MAX_PAGES; i++) {
         if (!bitmap_test(i)) {
             next_free_page = i;
             break;
@@ -448,7 +456,7 @@ find_first:
     uint8_t *p = (uint8_t *)boot_info_page;
     for (uint32_t i = 0; i < PAGE_SIZE; i++) p[i] = 0;
     
-    if (mm_map_page(BOOT_INFO_ADDR, (uintptr_t)boot_info_page, MM_FLAG_KERNEL_RW) != 0) {
+    if (mm_map_page(BOOT_INFO_ADDR, (uintptr_t)boot_info_page, MM_FLAG_USER) != 0) {
         print_str("MM: Failed to map boot_info page at 0x600000\n", 0x0C);
         return MEMORY_ERROR_NOMEM;
     }
@@ -1042,132 +1050,66 @@ int handle_page_fault(uint64_t fault_addr, uint64_t error_code) {
     /* Calculate page boundary */
     uint64_t page_start = fault_addr & ~0xFFFULL;
 
-    /* Check for null pointer access */
-    if (fault_addr < 0x1000) {
-        return 0;  /* Null pointer - don't handle */
-    }
-
-    /* Check if address is in valid user range (below kernel space)
-     * In this kernel, user space is 0x1000 to ~0x7FFFFFFFFFFF
-     * We only handle faults in low memory for now (below 16 MB)
-     */
-    if (page_start >= 0x1000000ULL) {
-        return 0;  /* Address too high - don't handle */
-    }
-
-    /* Check if this is an init.bin page fault (demand paging) */
-    extern uint8_t _binary_payload_init_bin_start[];
-    extern uint8_t _binary_payload_init_bin_end[];
-    uint64_t init_start = INIT_LOAD_ADDR;  /* 0x400000 */
-    uint64_t init_end   = init_start + (uint64_t)(_binary_payload_init_bin_end - _binary_payload_init_bin_start);
-    
-    if (page_start >= init_start && page_start < init_end) {
-        /* Allocate a physical page */
-        void *phys_page = mm_alloc_page();
-        if (!phys_page) {
-            return 0;  /* Out of memory */
+    /* Verify that the faulting address is within the valid user-space region */
+    if (fault_addr >= 0x400000 && fault_addr < 0x800000) {
+        
+        /* Allocate a fresh physical page */
+        void *page = mm_alloc_page();
+        if (!page) {
+            print_str("MM: Page fault out of memory\n", 0x0C);
+            return 0; /* Return 0 for failure */
         }
-        
-        /* Calculate offset in init.bin */
-        uint64_t offset = page_start - init_start;
-        uint64_t copy_size = PAGE_SIZE;
-        uint64_t total_size = (uint64_t)(_binary_payload_init_bin_end - _binary_payload_init_bin_start);
-        
-        /* Don't copy beyond the end of init.bin */
-        if (offset + copy_size > total_size) {
-            copy_size = total_size - offset;
-        }
-        
-        /* Zero the page first */
-        uint8_t *p = (uint8_t *)phys_page;
+
+        /* Zero-initialize the page by default */
+        uint8_t *p = (uint8_t *)page;
         for (uint32_t i = 0; i < PAGE_SIZE; i++) {
             p[i] = 0;
         }
-        
-        /* Copy data from init.bin */
-        uint8_t *src = _binary_payload_init_bin_start + offset;
-        for (uint64_t i = 0; i < copy_size; i++) {
-            p[i] = src[i];
+
+        /* Case 1: Load init.bin at 0x400000 */
+        if (page_start == 0x400000) {
+            extern uint8_t _binary_payload_init_bin_start[];
+            extern uint8_t _binary_payload_init_bin_end[];
+            
+            uint64_t bin_size = (uint64_t)(_binary_payload_init_bin_end - _binary_payload_init_bin_start);
+            uint64_t copy_size = (bin_size < PAGE_SIZE) ? bin_size : PAGE_SIZE;
+            for (uint64_t i = 0; i < copy_size; i++) {
+                p[i] = _binary_payload_init_bin_start[i];
+            }
         }
-        
-        /* Map with user read+execute permissions (no write) */
-        if (mm_map_page(page_start, (uintptr_t)phys_page, MM_FLAG_USER_RX) != 0) {
-            mm_free_page(phys_page);
-            return 0;  /* Mapping failed */
+        /* Case 2: Load ebts.bin at 0x500000 */
+        else if (page_start == 0x500000) {
+            extern uint8_t _binary_payload_ebts_bin_start[];
+            extern uint8_t _binary_payload_ebts_bin_end[];
+            
+            uint64_t bin_size = (uint64_t)(_binary_payload_ebts_bin_end - _binary_payload_ebts_bin_start);
+            uint64_t copy_size = (bin_size < PAGE_SIZE) ? bin_size : PAGE_SIZE;
+            for (uint64_t i = 0; i < copy_size; i++) {
+                p[i] = _binary_payload_ebts_bin_start[i];
+            }
         }
-        
-        return 1;  /* Page fault handled */
+
+        /* Map the virtual page to the physical frame with User and Write permissions */
+        if (mm_map_page(page_start, (uintptr_t)page, MM_FLAG_USER | MM_FLAG_WRITE) != 0) {
+            mm_free_page(page);
+            print_str("MM: Failed to map page fault address 0x", 0x0C);
+            print_hex(page_start, 0x0C);
+            print_str("\n", 0x0C);
+            return 0; /* Return 0 for failure */
+        }
+
+        /* Invalidate the TLB cache for this virtual address */
+        __asm__ volatile("invlpg (%0)" : : "r"(page_start) : "memory");
+
+        return 1; /* Return 1 (non-zero) for successful resolution */
     }
+
+    /* Unhandled or out-of-bounds fault */
+    print_str("MM: Unhandled page fault at virtual address 0x", 0x0C);
+    print_hex(fault_addr, 0x0C);
+    print_str(" (error code: ", 0x0C);
+    print_num(error_code, 0x0C);
+    print_str(")\n", 0x0C);
     
-    /* Check if this is an ebts.bin page fault (demand paging) */
-    extern uint8_t _binary_payload_ebts_bin_start[];
-    extern uint8_t _binary_payload_ebts_bin_end[];
-    uint64_t ebts_start = EBTS_LOAD_ADDR;  /* 0x500000 */
-    uint64_t ebts_end   = ebts_start + (uint64_t)(_binary_payload_ebts_bin_end - _binary_payload_ebts_bin_start);
-    
-    if (page_start >= ebts_start && page_start < ebts_end) {
-        /* Allocate a physical page */
-        void *phys_page = mm_alloc_page();
-        if (!phys_page) {
-            return 0;  /* Out of memory */
-        }
-        
-        /* Calculate offset in ebts.bin */
-        uint64_t offset = page_start - ebts_start;
-        uint64_t copy_size = PAGE_SIZE;
-        uint64_t total_size = (uint64_t)(_binary_payload_ebts_bin_end - _binary_payload_ebts_bin_start);
-        
-        /* Don't copy beyond the end of ebts.bin */
-        if (offset + copy_size > total_size) {
-            copy_size = total_size - offset;
-        }
-        
-        /* Zero the page first */
-        uint8_t *p = (uint8_t *)phys_page;
-        for (uint32_t i = 0; i < PAGE_SIZE; i++) {
-            p[i] = 0;
-        }
-        
-        /* Copy data from ebts.bin */
-        uint8_t *src = _binary_payload_ebts_bin_start + offset;
-        for (uint64_t i = 0; i < copy_size; i++) {
-            p[i] = src[i];
-        }
-        
-        /* Map with user read+execute permissions (no write) */
-        if (mm_map_page(page_start, (uintptr_t)phys_page, MM_FLAG_USER_RX) != 0) {
-            mm_free_page(phys_page);
-            return 0;  /* Mapping failed */
-        }
-        
-        return 1;  /* Page fault handled */
-    }
-
-    /* Allocate a physical page for this virtual address */
-    void *phys_page = mm_alloc_page();
-    if (!phys_page) {
-        return 0;  /* Out of memory */
-    }
-
-    /* Zero the page (security - don't leak kernel data to user) */
-    uint8_t *p = (uint8_t *)phys_page;
-    for (uint32_t i = 0; i < PAGE_SIZE; i++) {
-        p[i] = 0;
-    }
-
-    /* Determine page flags based on error code */
-    uint64_t map_flags = MM_FLAG_PRESENT | MM_FLAG_USER;
-    if (error_code & 0x02) {  /* Write access? */
-        map_flags |= MM_FLAG_WRITE;
-    }
-
-    /* Map the page */
-    int ret = mm_map_page(page_start, (uintptr_t)phys_page, map_flags);
-    if (ret != 0) {
-        mm_free_page(phys_page);
-        return 0;  /* Mapping failed */
-    }
-
-    /* Page successfully mapped - return 1 to continue execution */
-    return 1;
+    return 0; /* Return 0 for failure */
 }

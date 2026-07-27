@@ -84,7 +84,7 @@ int load_init_service_to_user_mode(void) {
     if (!boot_pa) kernel_panic("OOM: boot_info page");
 
     // II. Map 0x600000 to the allocated physical page with user read/write permissions
-    if (mm_map_page(0x600000ULL, (uintptr_t)boot_pa, MM_FLAG_KERNEL_RW) != 0) {
+    if (mm_map_page(0x600000ULL, (uintptr_t)boot_pa, MM_FLAG_USER_RO) != 0) {
         kernel_panic("Failed to map boot_info page at 0x600000");
     }
 

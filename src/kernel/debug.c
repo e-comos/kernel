@@ -179,6 +179,45 @@ void enable_sse(void) {
 }
 
 /*-----------------------------------------------------------------------------
+ * NXE (No-Execute Enable) Detection and Setup
+ *-----------------------------------------------------------------------------
+ */
+void enable_nxe(void) {
+    const char *log_prefix = "[CPU/NXE] ";
+
+    /* Check for NX support via CPUID extended leaf 0x80000001 */
+    uint32_t eax, ebx, ecx, edx;
+    __asm__ volatile("cpuid"
+                     : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
+                     : "a"(0x80000001));
+
+    early_debug_puts(log_prefix);
+    
+    /* The NX feature bit is bit 20 in EDX from CPUID 0x80000001 */
+    if (!(edx & (1 << 20))) {
+        early_debug_puts("NX bit not supported by CPU. Halting.\n");
+        kernel_panic("CPU does not support NX bit");
+    }
+    early_debug_puts("NX bit supported.\n");
+
+    /* Read current IA32_EFER MSR */
+    uint32_t low, high;
+    __asm__ volatile("rdmsr" : "=a"(low), "=d"(high) : "c"(MSR_EFER));
+    uint64_t efer = ((uint64_t)high << 32) | low;
+
+    /* Set NXE bit 11 */
+    efer |= EFER_NXE;
+
+    /* Write back to IA32_EFER MSR */
+    low = (uint32_t)efer;
+    high = (uint32_t)(efer >> 32);
+    __asm__ volatile("wrmsr" : : "c"(MSR_EFER), "a"(low), "d"(high));
+
+    early_debug_puts(log_prefix);
+    early_debug_puts("NXE (No-Execute) successfully enabled in EFER MSR.\n");
+}
+
+/*-----------------------------------------------------------------------------
  * Early Kernel Initialization Entry Point
  * 
  * This function is called from the kernel boot strap code (written in assembly)

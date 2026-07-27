@@ -4,7 +4,7 @@
  * Multiboot2-compliant kernel entry point (GAS/AT&T syntax).
  * This is the first code executed when GRUB loads the kernel.
  * It runs in 32-bit protected mode, validates the bootloader,
- * saves the Multiboot2 information structure, sets up a minimal
+ * saves the Multiboot2 information structure securely, sets up a minimal
  * environment, and then switches to 64-bit long mode.
  *
  * GRUB will:
@@ -22,6 +22,8 @@
 .global multiboot2_header_start
 .global multiboot2_header_end
 .global _start
+.global multiboot2_info_phys
+.global saved_multiboot_info
 
 /* ==================== Multiboot2 Header ==================== */
 /* The Multiboot2 header must be in the first 32KB of the kernel file
@@ -82,11 +84,22 @@ _start:
     jne .not_multiboot2
 
     /* ------------------------------------------------------------
-     * 2. Save the Multiboot2 information structure pointer
-     *    EBX contains the physical address of the Multiboot2 info structure
-     *    We need to preserve this for later use in 64-bit mode
+     * 2. Save the Multiboot2 information structure securely
+     *    EBX contains the physical address of the Multiboot2 info structure.
+     *    We immediately copy it to a safe buffer before BSS or page tables
+     *    overwrite the memory area GRUB placed it in.
      * ------------------------------------------------------------ */
-    movl %ebx, (multiboot2_info_phys)  /* Save physical address (32-bit) */
+    movl (%ebx), %ecx                /* Get total structure size */
+    cmpl $4096, %ecx                 /* Ensure it fits in our 4KB buffer */
+    jg .hang                         /* Hang if it exceeds buffer limits */
+
+    movl %ebx, %esi                  /* Source: physical address from GRUB */
+    movl $saved_multiboot_info, %edi /* Destination: safe kernel buffer */
+    cld
+    rep movsb                        /* Copy %ecx bytes safely */
+
+    /* Point multiboot2_info_phys to our safe copy instead of fragile low memory */
+    movl $saved_multiboot_info, multiboot2_info_phys
 
     /* ------------------------------------------------------------
      * 3. Set up a minimal stack for 32-bit mode
@@ -145,12 +158,16 @@ _start:
 
 /* ==================== Data Section ==================== */
 .section .bss
-.align 4
+.align 8
 /* Reserve 4 bytes to store the 32-bit physical address of the
  * Multiboot2 information structure passed by GRUB in EBX.
  * The 64-bit switcher will read this and pass it to the 64-bit kernel. */
 multiboot2_info_phys:
     .long 0
+
+/* Reserve 4KB of safe space to hold the copied Multiboot2 info */
+saved_multiboot_info:
+    .space 4096
 
 /* ==================== Stack Space ==================== */
 /* Small stack for the 32-bit transition phase (4KB) */
