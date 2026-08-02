@@ -178,9 +178,42 @@ long syscall_handler(uint32_t num, uint32_t arg1, uint32_t arg2, uint32_t arg3) 
     case SYS_IRQ_RESET_COUNT:
         if (arg1 >= MAX_IRQS) return -1;
         { uint32_t old = irq_occurrence_count[arg1]; irq_occurrence_count[arg1] = 0; return old; }
-    case SYS_THREAD_CRATE:
+    case SYS_THREAD_CREATE:
         return sched_create_thread((void (*)(void))(uintptr_t)arg1);
+    case SYS_MM_ALLOC_PAGES:
+        return (long)(uintptr_t)mm_alloc_pages(arg1);
+    case SYS_MM_FREE_PAGES:
+        mm_free_pages((void *)(uintptr_t)arg1, arg2);
+        return 0;
+    case SYS_GET_MONOTIME:
+        return (long)time_get_current_ms();
+    case SYS_GETRANDOM: {
+        /* Simple LCG seeded from monotonic time */
+        uint8_t *buf = (uint8_t *)(uintptr_t)arg1;
+        uint32_t len = arg2;
+        if (!buf) return -1;
+        static uint64_t rng_state = 0;
+        if (!rng_state) rng_state = time_get_current_ms() ^ 0xDEADBEEFULL;
+        for (uint32_t i = 0; i < len; i++) {
+            rng_state = rng_state * 6364136223846793005ULL + 1442695040888963407ULL;
+            buf[i] = (uint8_t)(rng_state >> 33);
+        }
+        return 0;
+    }
+    case SYS_INFO_SYS: {
+        struct { char sysname[32]; char release[32]; char machine[32]; } *u =
+            (void *)(uintptr_t)arg1;
+        if (!u) return -1;
+        const char *sn = "E-comOS", *rel = "0.1", *mach = "x86_64";
+        for (int i = 0; sn[i]; i++)   u->sysname[i]  = sn[i];
+        for (int i = 0; rel[i]; i++)  u->release[i]  = rel[i];
+        for (int i = 0; mach[i]; i++) u->machine[i]  = mach[i];
+        return 0;
+    }
+    /* SYS_SHM_OPEN, SYS_SHM_UNLINK, SYS_GETRLIMIT, SYS_SETRLIMIT,
+       SYS_SLEEP_PRO, SYS_TIMER_CREATE, SYS_SETTIMEOFDAY, SYS_HLUD_REQUEST
+       are delegated to user-space servers per SLFD Appendix D. */
     default:
-        return -1;
+        return -38; /* -ENOSYS */
     }
 }
