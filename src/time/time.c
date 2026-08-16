@@ -21,9 +21,9 @@
 static volatile uint64_t system_ticks = 0;
 
 uint64_t time_get_current_ms(void) {
-    return system_ticks;
+	return system_ticks;
 }
 
 void time_tick(void) {
-    system_ticks++;
+	system_ticks++;
 }

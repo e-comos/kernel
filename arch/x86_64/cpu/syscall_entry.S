@@ -34,88 +34,104 @@
  * Offset 8: user_rsp (saved user stack pointer)
  */
 
-.globl syscall_entry
+.global syscall_entry
 .type syscall_entry, @function
+
 syscall_entry:
-    /* Step 1: Swap GS base to access per-CPU data */
+    /* 1. Swap GS base to access per-CPU kernel data */
     swapgs
 
-    /* Step 2: Save user RSP and switch to kernel stack */
-    movq    %rsp, %gs:8       /* Save user RSP to per-CPU (offset 8) */
-    movq    %gs:0, %rsp       /* Load kernel RSP from per-CPU (offset 0) */
+    /* 2. Switch from User Stack to Kernel Stack cleanly 
+       (%gs:0x0 holds kernel stack, %gs:0x8 stores saved user RSP) 
+       NEVER push onto user stack before this switch! */
+    mov %rsp, %gs:0x8
+    mov %gs:0x0, %rsp
 
-    /* Step 3: Save registers on kernel stack
-     * After all pushes, stack layout from RSP:
-     * 0   = %r15 (pushed last)
-     * 8   = %r14
-     * 16  = %r13
-     * 24  = %r12
-     * 32  = %rbp
-     * 40  = %rbx
-     * 48  = %r11 (user RFLAGS)
-     * 56  = %r10 (arg4)
-     * 64  = %r9
-     * 72  = %r8
-     * 80  = %rdi (arg1)
-     * 88  = %rsi (arg2)
-     * 96  = %rdx (arg3)
-     * 104 = %rcx (user RIP)
-     * 112 = %rax (syscall number, pushed first)
+    /* FIXME: Because the system reached the #GP but we cannot
+     * found out who changed MSR, GS base, RSP or other fuck
+     * prolems, so we need use this hack.
+     * If you can, please fix this problem.
+     * For now(in the Aug 7th, 2026) we can know the system failed
+     * at shell(ebts) called the first syscall.
+     * Because RSP, MSR or GS base was changed. But we cannot found out
+     * who change it
      */
-    pushq   %rax                /* syscall number */
-    pushq   %rcx                /* user RIP */
-    pushq   %rdx                /* arg3 */
-    pushq   %rsi                /* arg2 */
-    pushq   %rdi                /* arg1 */
-    pushq   %r8
-    pushq   %r9
-    pushq   %r10                /* arg4 */
-    pushq   %r11                /* user RFLAGS */
-    pushq   %rbx
-    pushq   %rbp
-    pushq   %r12
-    pushq   %r13
-    pushq   %r14
-    pushq   %r15
 
-    /* Step 4: Set up arguments for syscall_handler
-     * System V ABI: RDI=num, RSI=arg1, RDX=arg2, RCX=arg3
-     */
-    movq    112(%rsp), %rdi    /* Syscall number (original %rax) */
-    movq    80(%rsp), %rsi     /* Original %rdi (arg1) */
-    movq    88(%rsp), %rdx     /* Original %rsi (arg2) */
-    movq    96(%rsp), %rcx     /* Original %rdx (arg3) */
+    /* 3. Save RAX,RCX and RDX because wrmsr will clobber them */
+    push %rax          /* syscall number */
+    push %rcx          /* user return address (RIP) */
+    push %rdx          /* user arg2 */
+    /* 4. Force restore IA32_KERNEL_GS_BASE to &bsp_percpu */
+    lea bsp_percpu(%rip), %rax   /* get address of bsp_percpu */
+    mov $0xC0000102, %ecx        /* IA32_KERNEL_GS_BASE MSR */
+    xor %edx, %edx
+    wrmsr
 
-    /* Step 5: Call C syscall handler */
-    call    syscall_handler
+    /* 5. Restore RAX and RCX */
+    pop %rdx
+    pop %rcx
+    pop %rax
 
-    /* Step 6: Save return value by overwriting saved %rax on stack */
-    movq    %rax, 112(%rsp)
+    /* 6. Save all user registers onto the KERNEL stack */
+    push %rax       /* [rsp + 112] Saved Syscall Number */
+    push %rcx       /* [rsp + 104] Saved User RIP (pushed by syscall) */
+    push %r11       /* [rsp + 96]  Saved User RFLAGS (pushed by syscall) */
+    push %rbx       /* [rsp + 88] */
+    push %rbp       /* [rsp + 80] */
+    push %r12       /* [rsp + 72] */
+    push %r13       /* [rsp + 64] */
+    push %r14       /* [rsp + 56] */
+    push %r15       /* [rsp + 48] */
+    push %rdi       /* [rsp + 40]  User Arg 1 */
+    push %rsi       /* [rsp + 32]  User Arg 2 */
+    push %rdx       /* [rsp + 24]  User Arg 3 */
+    push %r10       /* [rsp + 16]  User Arg 4 */
+    push %r8        /* [rsp + 8]   User Arg 5 */
+    push %r9        /* [rsp + 0]   User Arg 6 */
 
-    /* Step 7: Restore registers from kernel stack in exact reverse push order */
-    popq    %r15
-    popq    %r14
-    popq    %r13
-    popq    %r12
-    popq    %rbp
-    popq    %rbx
-    popq    %r11                /* Matches pushq %r11 */
-    popq    %r10                /* Matches pushq %r10 */
-    popq    %r9                 /* Matches pushq %r9 */
-    popq    %r8                 /* Matches pushq %r8 */
-    popq    %rdi                /* Matches pushq %rdi */
-    popq    %rsi                /* Matches pushq %rsi */
-    popq    %rdx                /* Matches pushq %rdx */
-    popq    %rcx                /* Matches pushq %rcx (user RIP) */
-    popq    %rax                /* Matches pushq %rax (return value) */
+    /* 7. Align stack to 16-byte boundary */
+    sub $8, %rsp
 
-    /* Step 8: Restore user RSP */
-    movq    %gs:8, %rsp         /* Restore user RSP from per-CPU */
+    /* 8. Shuffle registers to pass arguments to C syscall_handler */
+    mov %r8,  %r9
+    mov %r10, %r8
+    mov %rdx, %rcx
+    mov %rsi, %rdx
+    mov %rdi, %rsi
+    mov %rax, %rdi
 
-    /* Step 9: Swap GS base back to user mode */
+    /* 9. Call C Kernel Handler */
+    call syscall_handler
+
+    /* 10. Undo 16-byte stack alignment padding */
+    add $8, %rsp
+
+    /* 11. Restore user registers in exact reverse order */
+    pop %r9
+    pop %r8
+    pop %r10
+    pop %rdx
+    pop %rsi
+    pop %rdi
+    pop %r15
+    pop %r14
+    pop %r13
+    pop %r12
+    pop %rbp
+    pop %rbx
+    pop %r11
+    pop %rcx
+
+    /* Skip the saved RAX slot (8 bytes) on kernel stack */
+    add $8, %rsp
+
+    /* 12. Restore User Stack Pointer */
+    mov %gs:0x8, %rsp
+
+    /* 13. Swap GS back to User GS Base */
     swapgs
 
-    /* Step 10: Execute SYSRET */
+    /* 14. Return to User Space */
     sysretq
 
 .size syscall_entry, .-syscall_entry

@@ -9,14 +9,14 @@
 #include <stddef.h>
 
 typedef struct list_node {
-    struct list_node *next;
-    struct list_node *prev;
+	struct list_node *next;
+	struct list_node *prev;
 } list_node;
 
 typedef struct {
-    list_node *first;
-    list_node *last;
-    size_t    count;
+	list_node *first;
+	list_node *last;
+	size_t count;
 } list_head;
 
 void list_init(list_head *head);

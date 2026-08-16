@@ -8,21 +8,21 @@
 #include <stdint.h>
 
 // Page directory entry flags
-#define PAGE_PRESENT    0x001
-#define PAGE_WRITABLE   0x002
-#define PAGE_USER       0x004
-#define PAGE_ACCESSED   0x020
-#define PAGE_DIRTY      0x040
+#define PAGE_PRESENT 0x001
+#define PAGE_WRITABLE 0x002
+#define PAGE_USER 0x004
+#define PAGE_ACCESSED 0x020
+#define PAGE_DIRTY 0x040
 
 // Page table entry
 typedef uint32_t page_table_entry_t;
 
-// Page directory entry  
+// Page directory entry
 typedef uint32_t page_directory_entry_t;
 
 // Page directory structure
 struct page_directory {
-    page_directory_entry_t tables[1024];
+	page_directory_entry_t tables[1024];
 };
 
 // Paging functions

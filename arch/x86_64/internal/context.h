@@ -9,10 +9,10 @@
 
 // CPU context for context switching
 struct cpu_context {
-    uint32_t eax, ebx, ecx, edx;
-    uint32_t esi, edi, esp, ebp;
-    uint32_t eip, eflags;
-    uint32_t cr3;  // Page directory
+	uint32_t eax, ebx, ecx, edx;
+	uint32_t esi, edi, esp, ebp;
+	uint32_t eip, eflags;
+	uint32_t cr3; // Page directory
 } __attribute__((packed));
 
 // Context switching functions

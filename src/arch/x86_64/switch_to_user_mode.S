@@ -60,6 +60,11 @@ asm_switch_to_user_mode:
     /* 1. RIP */
     pushq   %rdi
 
+    /* Before iretq, we should clean the MSR make sure that will not be old or useless number */
+    mov $0xC0000101, %ecx   /* IA32_GS_BASE MSR */
+    xor %eax, %eax
+    xor %edx, %edx
+    wrmsr
     /* Atomically restore RIP/CS/RFLAGS/RSP/SS and switch to ring 3 */
     iretq
 

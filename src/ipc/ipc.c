@@ -1,86 +1,73 @@
+/**
+ * E-comOS Kernel - The Kernel of E-comOS Operating System
+ * Copyright (C) 2025,2026 Saladin5101
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as
+ * published by the Free Software Foundation, either version 3 of the
+ * License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along this program.  If not, see <https://www.gnu.org/licenses />.
+ */
 #include <kernel/ipc.h>
+#include <kernel/mm.h>
 #include <kernel/sched.h>
-#include <kernel/syscall.h>
 #include <klibc/string.h>
 #include <kernel/internal/kernel.h>
 
-// IPC message queue
-static ipc_message_t ipc_queue[IPC_MAX_QUEUE_SIZE];
-static uint32_t ipc_queue_head = 0;
-static uint32_t ipc_queue_tail = 0;
-static uint32_t ipc_queue_count = 0;
-static uint32_t ipc_sequence = 0;
-
-void ipc_init(void) {
-    ipc_queue_head = 0;
-    ipc_queue_tail = 0;
-    ipc_queue_count = 0;
-    ipc_sequence = 0;
-}
-
 int ipc_send(thread_id target, ipc_message_t *msg) {
-    if (!msg) return ECLIB_IPC_PERM_DENIED;
+	if (!msg)
+		return -1;
+	Thread *t = sched_get_thread_by_pid(target);
+	if (!t)
+		return -1;
+	if (t->ipc_count >= IPC_MAX_QUEUE_SIZE)
+		return -1;
 
-    // Find the target thread
-    Thread *target_thread = sched_get_thread_by_pid(target);
-    if (!target_thread) return ECLIB_IPC_SERVICE_UNAVAIL;
+	ipc_message_t *copy = mm_alloc_page();
+	if (!copy)
+		return -1;
+	*copy = *msg;
 
-    // Check if queue is full
-    if (ipc_queue_count >= IPC_MAX_QUEUE_SIZE) {
-        return ECLIB_IPC_BUFFER_OVERFLOW;
-    }
-
-    // Copy message to queue
-    ipc_message_t *entry = &ipc_queue[ipc_queue_tail];
-    entry->type = msg->type;
-    entry->source = msg->source;
-    entry->target = msg->target;
-    entry->timestamp = msg->timestamp;
-    entry->size = msg->size;
-    entry->sequence = ++ipc_sequence;
-
-    if (msg->size > 0 && msg->size <= IPC_MAX_DATA_SIZE) {
-        memcpy(entry->data, msg->data, msg->size);
-    }
-
-    // Update queue
-    ipc_queue_tail = (ipc_queue_tail + 1) % IPC_MAX_QUEUE_SIZE;
-    ipc_queue_count++;
-
-    // Wake up target thread if it's blocked waiting for IPC
-    if (target_thread->state == THREAD_BLOCKED &&
-        target_thread->block_reason == BLOCK_REASON_NONE) {
-        target_thread->state = THREAD_READY;
-    }
+    // TODO: For now, just make the `source` to be the threads ID
+    // But in the future, we have Process Managment System. Please remove this line. 
+    copy->source = sched_get_current_thread()->id;
     
-    return IPC_OK;
+	t->ipc_queue[t->ipc_tail] = copy;
+	t->ipc_tail = (t->ipc_tail + 1) % IPC_MAX_QUEUE_SIZE;
+	t->ipc_count++;
+
+	if (t->state == THREAD_BLOCKED && t->block_reason == BLOCK_REASON_IPC_WAIT) {
+		t->state = THREAD_READY;
+		t->block_reason = BLOCK_REASON_NONE;
+	}
+	return 0;
 }
 
 int ipc_receive(ipc_message_t *msg) {
-    if (!msg) return ECLIB_IPC_PERM_DENIED;
+	if (!msg)
+		return -1;
+	Thread *cur = sched_get_current_thread();
+	if (!cur)
+		return -1;
 
-    // Check if queue is empty
-    if (ipc_queue_count == 0) {
-        return ECLIB_IPC_TIMEOUT;
-    }
+	while (cur->ipc_count == 0) {
+		cur->state = THREAD_BLOCKED;
+		cur->block_reason = BLOCK_REASON_IPC_WAIT;
+		sched_yield();
+	}
 
-    // Copy message from queue
-    ipc_message_t *entry = &ipc_queue[ipc_queue_head];
-    msg->type = entry->type;
-    msg->source = entry->source;
-    msg->target = entry->target;
-    msg->timestamp = entry->timestamp;
-    msg->size = entry->size;
-    msg->sequence = entry->sequence;
+	ipc_message_t *entry = cur->ipc_queue[cur->ipc_head];
+	*msg = *entry;
+	mm_free_page(entry);
 
-    if (entry->size > 0 && entry->size <= IPC_MAX_DATA_SIZE) {
-        memcpy(msg->data, entry->data, entry->size);
-    }
-
-    // Update queue
-    ipc_queue_head = (ipc_queue_head + 1) % IPC_MAX_QUEUE_SIZE;
-    ipc_queue_count--;
-
-    return IPC_OK;
+	cur->ipc_head = (cur->ipc_head + 1) % IPC_MAX_QUEUE_SIZE;
+	cur->ipc_count--;
+	return 0;
 }
-

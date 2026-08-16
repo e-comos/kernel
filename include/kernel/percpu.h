@@ -15,8 +15,8 @@
 
 /* Per-CPU data structure - accessed via GS base in kernel mode */
 typedef struct {
-    uint64_t kernel_rsp;    /* Kernel stack pointer for syscall entry */
-    uint64_t user_rsp;      /* Saved user stack pointer */
+	uint64_t kernel_rsp; /* Kernel stack pointer for syscall entry */
+	uint64_t user_rsp;   /* Saved user stack pointer */
 } percpu_t;
 
 /* Initialize per-CPU data for the current CPU */

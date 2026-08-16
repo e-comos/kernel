@@ -19,32 +19,32 @@
 #ifndef KERNEL_IPC_H
 #define KERNEL_IPC_H
 
-#include <stdint.h>
 #include <kernel/internal/types.h>
+#include <stdint.h>
 
-#define IPC_MAX_DATA_SIZE   4096
-#define IPC_MAX_QUEUE_SIZE  16
+#define IPC_MAX_DATA_SIZE 4096
+#define IPC_MAX_QUEUE_SIZE 16
 
-#define IPC_OK                    0
-#define ECLIB_IPC_TIMEOUT          -1
-#define ECLIB_IPC_SERVICE_UNAVAIL  -2
-#define ECLIB_IPC_PERM_DENIED      -3
-#define ECLIB_IPC_BUFFER_OVERFLOW  -4
+#define IPC_OK 0
+#define ECLIB_IPC_TIMEOUT -1
+#define ECLIB_IPC_SERVICE_UNAVAIL -2
+#define ECLIB_IPC_PERM_DENIED -3
+#define ECLIB_IPC_BUFFER_OVERFLOW -4
 
 typedef enum {
-    IPC_MSG_REQUEST = 1,
-    IPC_MSG_RESPONSE = 2,
-    IPC_MSG_NOTIFICATION = 3,
+	IPC_MSG_REQUEST = 1,
+	IPC_MSG_RESPONSE = 2,
+	IPC_MSG_NOTIFICATION = 3,
 } ipc_msg_type_t;
 
 typedef struct ipc_message {
-    uint32_t type;
-    uint32_t source;
-    uint32_t target;
-    uint32_t timestamp;
-    uint32_t size;
-    uint32_t sequence;
-    uint8_t  data[IPC_MAX_DATA_SIZE];
+	uint32_t type;
+	uint32_t source;
+	uint32_t target;
+	uint32_t timestamp;
+	uint32_t size;
+	uint32_t sequence;
+	uint8_t data[IPC_MAX_DATA_SIZE];
 } ipc_message_t;
 
 typedef uint32_t thread_id;
@@ -52,11 +52,5 @@ typedef uint32_t thread_id;
 /* Low-level kernel IPC */
 int ipc_send(thread_id target, ipc_message_t *msg);
 int ipc_receive(ipc_message_t *msg);
-
-/* IPC subsystem initialization */
-void ipc_init(void);
-
-
-
 
 #endif

@@ -11,20 +11,20 @@
 typedef uint32_t object_id_t;
 
 // Object types (everything is an object)
-#define OBJ_TYPE_THREAD     1
-#define OBJ_TYPE_PROCESS    2
-#define OBJ_TYPE_MEMORY     3
+#define OBJ_TYPE_THREAD 1
+#define OBJ_TYPE_PROCESS 2
+#define OBJ_TYPE_MEMORY 3
 #define OBJ_TYPE_IPC_CHANNEL 4
-#define OBJ_TYPE_IRQ        5
-#define OBJ_TYPE_IO_PORT    6
+#define OBJ_TYPE_IRQ 5
+#define OBJ_TYPE_IO_PORT 6
 
 // Object descriptor
 struct object {
-    object_id_t id;
-    uint32_t type;
-    uint32_t owner_process;
-    uint32_t ref_count;
-    void *data;
+	object_id_t id;
+	uint32_t type;
+	uint32_t owner_process;
+	uint32_t ref_count;
+	void *data;
 };
 
 // Object operations (USERSPACE SERVICE)

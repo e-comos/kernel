@@ -9,12 +9,13 @@
 
 // Kernel state
 struct kernel_state {
-    uint32_t boot_time;
-    uint32_t uptime;
-    uint32_t active_threads;
-    uint32_t total_memory;
-    uint32_t free_memory;
+	uint32_t boot_time;
+	uint32_t uptime;
+	uint32_t active_threads;
+	uint32_t total_memory;
+	uint32_t free_memory;
 };
+#define READ_BEFORE_FREE_BARRIER() __asm__ volatile("" ::: "memory")
 
 // Global kernel state
 extern struct kernel_state g_kernel_state;

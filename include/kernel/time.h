@@ -4,6 +4,6 @@
 #include <stdint.h>
 
 uint64_t time_get_current_ms(void);
-void     time_tick(void);
+void time_tick(void);
 
 #endif

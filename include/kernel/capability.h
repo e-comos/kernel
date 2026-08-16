@@ -8,22 +8,22 @@
 
 #include <stdint.h>
 
-#define CAP_TYPE_MEMORY   1
-#define CAP_TYPE_IRQ      2
-#define CAP_TYPE_IPC      3
-#define CAP_TYPE_IO_PORT  4
+#define CAP_TYPE_MEMORY 1
+#define CAP_TYPE_IRQ 2
+#define CAP_TYPE_IPC 3
+#define CAP_TYPE_IO_PORT 4
 
-#define CAP_RIGHT_READ    (1 << 0)
-#define CAP_RIGHT_WRITE   (1 << 1)
+#define CAP_RIGHT_READ (1 << 0)
+#define CAP_RIGHT_WRITE (1 << 1)
 #define CAP_RIGHT_EXECUTE (1 << 2)
-#define CAP_RIGHT_GRANT   (1 << 3)
+#define CAP_RIGHT_GRANT (1 << 3)
 
 typedef struct {
-    uint32_t type;
-    uint32_t rights;
-    uint32_t object_id;
-    uint32_t base_addr;
-    uint32_t size;
+	uint32_t type;
+	uint32_t rights;
+	uint32_t object_id;
+	uint32_t base_addr;
+	uint32_t size;
 } Capability;
 
 int cap_grant(uint32_t target_pid, Capability cap);

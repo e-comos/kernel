@@ -9,62 +9,60 @@
 #ifndef KERNEL_MM_H
 #define KERNEL_MM_H
 
-#include <stdint.h>
-#include <stddef.h>
 #include <kernel/boot.h>
+#include <stddef.h>
+#include <stdint.h>
 
-#define PAGE_SIZE       4096u
-#define MAX_PHYS_PAGES  4096u   /* manages 16 MB: [0x100000, 0x1100000) */
-#define MAX_PAGES       MAX_PHYS_PAGES
-#define KERNEL_BASE     0x100000u
+#define PAGE_SIZE 4096u
+#define MAX_PHYS_PAGES 4096u /* manages 16 MB: [0x100000, 0x1100000) */
+#define MAX_PAGES MAX_PHYS_PAGES
+#define KERNEL_BASE 0x100000u
 
-#define MULTIBOOT_TAG_TYPE_END    0
+#define MULTIBOOT_TAG_TYPE_END 0
 #define MULTIBOOT_TAG_TYPE_MODULE 3
 
 /* Physical memory window managed */
-#define PHYS_BASE      0x100000ULL
-#define PHYS_SIZE      (MAX_PAGES * (uint64_t)PAGE_SIZE)  /* 16 MB */
+#define PHYS_BASE 0x100000ULL
+#define PHYS_SIZE (MAX_PAGES * (uint64_t)PAGE_SIZE) /* 16 MB */
 
 /* x86 page-table entry flags */
-#define PTE_PRESENT  (1u << 0)
+#define PTE_PRESENT (1u << 0)
 #define PTE_WRITABLE (1u << 1)
-#define PTE_USER     (1u << 2)
-#define PTE_PWT      (1u << 3)  /* Page Write Through */
-#define PTE_PCD      (1u << 4)  /* Page Cache Disable */
+#define PTE_USER (1u << 2)
+#define PTE_PWT (1u << 3) /* Page Write Through */
+#define PTE_PCD (1u << 4) /* Page Cache Disable */
 #define PTE_ACCESSED (1u << 5)
-#define PTE_DIRTY    (1u << 6)
-#define PTE_PAT      (1u << 7)  /* Page Attribute Table */
-#define PTE_GLOBAL   (1u << 8)
-
+#define PTE_DIRTY (1u << 6)
+#define PTE_PAT (1u << 7) /* Page Attribute Table */
+#define PTE_GLOBAL (1u << 8)
 
 /* ------------------------------------------------------------
  * Physical page-table bit definitions (match x86-64 hardware)
  * ------------------------------------------------------------ */
-#define MM_FLAG_PRESENT  (1u << 0)   /* Page present (required) */
-#define MM_FLAG_READ     (1u << 0)   /* Same as PRESENT; kept for compatibility */
-#define MM_FLAG_WRITE    (1u << 1)   /* Writable */
-#define MM_FLAG_USER     (1u << 2)   /* User accessible */
-#define MM_FLAG_PWT      (1u << 3)   /* Write-through */
-#define MM_FLAG_PCD      (1u << 4)   /* Cache disable */
-#define MM_FLAG_ACCESSED (1u << 5)   /* Accessed (set by CPU) */
-#define MM_FLAG_DIRTY    (1u << 6)   /* Dirty (set by CPU) */
-#define MM_FLAG_PAT      (1u << 7)   /* Page attribute table */
-#define MM_FLAG_GLOBAL   (1u << 8)   /* Global TLB entry */
-#define MM_FLAG_NX       (1ULL << 63) /* No-eXecute - set to disable execution */
+#define MM_FLAG_PRESENT (1u << 0)  /* Page present (required) */
+#define MM_FLAG_READ (1u << 0)     /* Same as PRESENT; kept for compatibility */
+#define MM_FLAG_WRITE (1u << 1)    /* Writable */
+#define MM_FLAG_USER (1u << 2)     /* User accessible */
+#define MM_FLAG_PWT (1u << 3)      /* Write-through */
+#define MM_FLAG_PCD (1u << 4)      /* Cache disable */
+#define MM_FLAG_ACCESSED (1u << 5) /* Accessed (set by CPU) */
+#define MM_FLAG_DIRTY (1u << 6)    /* Dirty (set by CPU) */
+#define MM_FLAG_PAT (1u << 7)      /* Page attribute table */
+#define MM_FLAG_GLOBAL (1u << 8)   /* Global TLB entry */
+#define MM_FLAG_NX (1ULL << 63)    /* No-eXecute - set to disable execution */
 
 /* SECURE DATA PAGES (Execution Disabled) */
-#define MM_FLAG_KERNEL_RW  (MM_FLAG_PRESENT | MM_FLAG_WRITE | MM_FLAG_NX)
-#define MM_FLAG_USER_RO    (MM_FLAG_PRESENT | MM_FLAG_USER  | MM_FLAG_NX)
-#define MM_FLAG_USER_RW    (MM_FLAG_PRESENT | MM_FLAG_WRITE | MM_FLAG_USER | MM_FLAG_NX)
+#define MM_FLAG_KERNEL_RW (MM_FLAG_PRESENT | MM_FLAG_WRITE | MM_FLAG_NX)
+#define MM_FLAG_USER_RO (MM_FLAG_PRESENT | MM_FLAG_USER | MM_FLAG_NX)
+#define MM_FLAG_USER_RW (MM_FLAG_PRESENT | MM_FLAG_WRITE | MM_FLAG_USER | MM_FLAG_NX)
 
 /* SECURE CODE PAGES (Execution Allowed, NX=0) */
-#define MM_FLAG_KERNEL_RX  (MM_FLAG_PRESENT)                      
-#define MM_FLAG_USER_RX    (MM_FLAG_PRESENT | MM_FLAG_USER)       
-
+#define MM_FLAG_KERNEL_RX (MM_FLAG_PRESENT)
+#define MM_FLAG_USER_RX (MM_FLAG_PRESENT | MM_FLAG_USER)
 
 /* Page table structures */
-#define PT_ENTRIES  512u
-#define PD_ENTRIES  512u
+#define PT_ENTRIES 512u
+#define PD_ENTRIES 512u
 #define PDPT_ENTRIES 512u
 #define PML4_ENTRIES 512u
 
@@ -75,17 +73,17 @@ extern uint64_t pd[PD_ENTRIES];
 extern uint64_t pt[8][PT_ENTRIES];
 
 /* Memory allocation flags */
-#define KMALLOC_NORMAL  0x00
-#define KMALLOC_ZEROED  0x01  /* Clear memory to zeros */
-#define KMALLOC_ALIGNED 0x02  /* Return aligned memory (16-byte) */
+#define KMALLOC_NORMAL 0x00
+#define KMALLOC_ZEROED 0x01  /* Clear memory to zeros */
+#define KMALLOC_ALIGNED 0x02 /* Return aligned memory (16-byte) */
 
 typedef enum {
-    MEMORY_SUCCESS              =  0,
-    MEMORY_ERROR_INVALID_PARAMS = -1,
-    MEMORY_ERROR_NOMEM          = -2,
-    MEMORY_ERROR_BUSY           = -3,
-    MEMORY_ERROR_NOT_ALIGNED    = -4,
-    MEMORY_ERROR_OUT_OF_RANGE   = -5
+	MEMORY_SUCCESS = 0,
+	MEMORY_ERROR_INVALID_PARAMS = -1,
+	MEMORY_ERROR_NOMEM = -2,
+	MEMORY_ERROR_BUSY = -3,
+	MEMORY_ERROR_NOT_ALIGNED = -4,
+	MEMORY_ERROR_OUT_OF_RANGE = -5
 } memory_status;
 
 /*
@@ -140,7 +138,7 @@ void mm_enable_paging(void);
  * In identity-mapped setup, this is a simple cast.
  */
 static inline void *mm_phys_to_virt(uintptr_t phys) {
-    return (void *)(phys);
+	return (void *)(phys);
 }
 
 /*
@@ -148,7 +146,7 @@ static inline void *mm_phys_to_virt(uintptr_t phys) {
  * In identity-mapped setup, this is a simple cast.
  */
 static inline uintptr_t mm_virt_to_phys(void *virt) {
-    return (uintptr_t)virt;
+	return (uintptr_t)virt;
 }
 
 /*
@@ -168,7 +166,7 @@ uint32_t mm_get_used_pages(void);
 void mm_dump_bitmap(uint32_t start, uint32_t count);
 void mm_dump_stats(void);
 
-extern uint8_t  page_bitmap[MAX_PAGES / 8];
+extern uint8_t page_bitmap[MAX_PAGES / 8];
 extern uint32_t next_free_page;
 extern int page_tables_ready;
 

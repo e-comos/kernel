@@ -1,14 +1,49 @@
-#include <user_space/driver_loader.h>
-#include <kernel/mm.h>
-#include <kernel/printkit/print.h>
-#include <kernel/debug.h>
-#include <stdint.h>
+/*
+ * E-comOS Kernel - Driver Loader (Multiboot2 Module Parser)
+ * Copyright (C) 2025,2026  Saladin5101
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 
+#include <stdint.h>
+#include <user_space/driver_loader.h>
+#include <kernel/debug.h>
+#include <kernel/printkit/print.h>
+#include <kernel/mm.h>
+
+/* Physical address of the Multiboot2 info structure (set by boot assembly) */
 extern uint32_t multiboot2_info_phys;
 
-int load_driver_from_multiboot(void* mb_info_addr) {
+/* Global variables holding the driver module's physical address and size */
+uint64_t driver_phys_addr = 0;
+uint64_t driver_size = 0;
+
+
+/*
+ * load_driver_from_multiboot - Scan Multiboot2 tags for a driver module.
+ *
+ * Searches for a module tag (type 3). If found, it stores the physical
+ * address and size in the global variables driver_phys_addr and driver_size.
+ * This allows the user-mode initialization code to later write it to
+ * the shared boot_info structure.
+ *
+ * Returns: 0 on success, -1 on error or if no driver module is found.
+ */
+int load_driver_from_multiboot(void *mb_info_addr) {
+    /* Fallback to the fixed physical address if none given */
     if (!mb_info_addr || (uintptr_t)mb_info_addr == 0) {
-        mb_info_addr = (void*)(uintptr_t)multiboot2_info_phys;
+        mb_info_addr = (void *)(uintptr_t)multiboot2_info_phys;
     }
 
     if (!mb_info_addr || (uintptr_t)mb_info_addr == 0) {
@@ -17,14 +52,15 @@ int load_driver_from_multiboot(void* mb_info_addr) {
     }
 
     uint32_t addr = (uint32_t)(uintptr_t)mb_info_addr;
-    
     uint32_t total_size = *(uint32_t *)(uintptr_t)addr;
-    /* Limit the size check to the 4KB (4096 bytes) buffer max we created */
+
+    /* Basic sanity check on the info structure */
     if (total_size < 16 || total_size > 4096) {
         print_str("Error: Invalid Multiboot2 total size\n", 0x0F);
         return -1;
     }
 
+    /* Tags start at offset 8 */
     struct multiboot_tag *tag = (struct multiboot_tag *)(uintptr_t)(addr + 8);
     struct multiboot_tag *end = (struct multiboot_tag *)(uintptr_t)(addr + total_size);
 
@@ -36,12 +72,12 @@ int load_driver_from_multiboot(void* mb_info_addr) {
             return -1;
         }
 
-        if (tag->type == 3) { // Type 3 = Module tag
+        /* Tag type 3 = Module */
+        if (tag->type == 3) {
             struct multiboot_tag_module *mod = (struct multiboot_tag_module *)tag;
-            
             uint32_t pstart = mod->mod_start;
-            uint32_t pend = mod->mod_end;
-            uint32_t size = pend - pstart;
+            uint32_t pend   = mod->mod_end;
+            uint32_t size   = pend - pstart;
 
             if (size == 0 || size > 0x100000) {
                 print_str("Error: Invalid driver module size\n", 0x0F);
@@ -54,70 +90,19 @@ int load_driver_from_multiboot(void* mb_info_addr) {
             print_num(size, 0x0F);
             print_str(" bytes\n", 0x0F);
 
-            uint32_t pages = (uint32_t)((size + PAGE_SIZE - 1) / PAGE_SIZE);
-            for (uint32_t p = 0; p < pages; p++) {
-                void *pa = mm_alloc_page();
-                if (!pa) {
-                    kernel_panic("OOM: driver page allocation failed");
-                }
-                if (mm_map_page(DRIVER_LOAD_ADDR + (p * PAGE_SIZE), (uintptr_t)pa, MM_FLAG_USER_RX) != 0) {
-                    kernel_panic("Failed to map driver page");
-                }
-            }
+            /* Store in global variables for later use */
+            driver_phys_addr = (uint64_t)pstart;
+            driver_size      = (uint64_t)size;
 
-            uint8_t *src = (uint8_t *)(uintptr_t)pstart;
-            uint8_t *dst = (uint8_t *)DRIVER_LOAD_ADDR;
-            for (uint32_t i = 0; i < size; i++) {
-                dst[i] = src[i];
-            }
-
-            if (mm_map_page(0xB80000ULL, 0xB80000ULL, MM_FLAG_USER_RW) != 0) {
-                kernel_panic("Failed to map VGA buffer for driver");
-            }
-            print_str("  VGA buffer (0xB80000) mapped for user-space driver\n", 0x0F);
-
-            print_str("drivers.bin successfully loaded to virtual address 0x700000\n", 0x0F);
             return 0;
         }
 
+        /* Advance to the next tag (8‑byte aligned) */
         tag = (struct multiboot_tag *)((uint8_t *)tag + ((tag->size + 7) & ~7));
     }
 
     print_str("Warning: No driver module found in Multiboot2 tags\n", 0x0F);
+    driver_phys_addr = 0;
+    driver_size = 0;
     return -1;
-}
-
-/* 
- * Reads components like init-service or ebts directly from their designated 
- * physical memory addresses rather than relying on a GRUB module.
- */
-int load_service_from_memory(uintptr_t phys_addr, uint32_t size, uintptr_t target_vaddr) {
-    if (size == 0 || size > 0x200000) { 
-        print_str("Error: Invalid service size\n", 0x0F);
-        return -1;
-    }
-
-    print_str("Loading service from raw memory at 0x", 0x0F);
-    print_hex((uint32_t)phys_addr, 0x0F);
-    print_str("\n", 0x0F);
-
-    uint32_t pages = (uint32_t)((size + PAGE_SIZE - 1) / PAGE_SIZE);
-    for (uint32_t p = 0; p < pages; p++) {
-        void *pa = mm_alloc_page();
-        if (!pa) {
-            kernel_panic("OOM: service page allocation failed");
-        }
-        if (mm_map_page(target_vaddr + (p * PAGE_SIZE), (uintptr_t)pa, MM_FLAG_USER_RX) != 0) {
-            kernel_panic("Failed to map service page");
-        }
-    }
-
-    uint8_t *src = (uint8_t *)phys_addr;
-    uint8_t *dst = (uint8_t *)target_vaddr;
-    for (uint32_t i = 0; i < size; i++) {
-        dst[i] = src[i];
-    }
-
-    print_str("Service successfully loaded directly from memory\n", 0x0F);
-    return 0;
 }

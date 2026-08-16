@@ -9,16 +9,15 @@
 
 // CPU registers structure
 struct cpu_context {
-    uint32_t eax, ebx, ecx, edx;
-    uint32_t esi, edi, esp, ebp;
-    uint32_t eip, eflags;
+	uint32_t eax, ebx, ecx, edx;
+	uint32_t esi, edi, esp, ebp;
+	uint32_t eip, eflags;
 };
 
-
 // Interrupt handling
-#define IRQ_TIMER    0
+#define IRQ_TIMER 0
 #define IRQ_KEYBOARD 1
-#define IRQ_SYSCALL  0x80
+#define IRQ_SYSCALL 0x80
 
 // Architecture-specific functions
 void arch_enable_interrupts(void);

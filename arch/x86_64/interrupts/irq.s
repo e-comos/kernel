@@ -1,6 +1,7 @@
 /**
  * E-comOS Kernel - A Microkernel of E-comOS Operating System.
  * Copyright (C) 2026 Saladin5101 
+ *
  * This file is a part of E-comOS Kernel
  * This program is a free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published
