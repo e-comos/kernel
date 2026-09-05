@@ -1,19 +1,19 @@
 /*
-    E-comOS Kernel - SYSCALL/SYSRET mechanism support
-    Copyright (C) 2025,2026  Saladin5101
+	E-comOS Kernel - SYSCALL/SYSRET mechanism support
+	Copyright (C) 2025,2026  Saladin5101
 
-    This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU Affero General Public License as published
-    by the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
+	This program is free software: you can redistribute it and/or modify
+	it under the terms of the GNU Affero General Public License as published
+	by the Free Software Foundation, either version 3 of the License, or
+	(at your option) any later version.
 
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU Affero General Public License for more details.
+	This program is distributed in the hope that it will be useful,
+	but WITHOUT ANY WARRANTY; without even the implied warranty of
+	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+	GNU Affero General Public License for more details.
 
-    You should have received a copy of the GNU Affero General Public License
-    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+	You should have received a copy of the GNU Affero General Public License
+	along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 #include <kernel/percpu.h>
@@ -21,8 +21,8 @@
 #include <stdint.h>
 
 /* Model Specific Register (MSR) addresses for SYSCALL/SYSRET */
-#define MSR_EFER 0xC0000080   /* Extended Feature Enable Register */
-#define MSR_STAR 0xC0000081   /* SYSCALL Target Address */
+#define MSR_EFER 0xC0000080	  /* Extended Feature Enable Register */
+#define MSR_STAR 0xC0000081	  /* SYSCALL Target Address */
 #define MSR_LSTAR 0xC0000082  /* Long Mode SYSCALL Target */
 #define MSR_SFMASK 0xC0000084 /* SYSCALL Flags Mask */
 
@@ -77,7 +77,7 @@ void enable_syscall_mechanism(void) {
 	percpu_init();
 
 	/* Verify per-CPU data */
-	percpu_t *pcpu = percpu_get();
+	percpu_t* pcpu = percpu_get();
 	print_str("  Kernel stack top at 0x", 0x0A);
 	print_hex((uint32_t)pcpu->kernel_rsp, 0x0A);
 	print_str("\n", 0x0A);
@@ -99,7 +99,8 @@ void enable_syscall_mechanism(void) {
 	 * Bits 63:48: Selector for user code segment (with RPL forced to 3)
 	 * Bits 47:32: Selector for kernel code segment (with RPL forced to 0)
 	 * Our layout: USER_CS=0x1B, KERNEL_CS=0x08
-	 * So STAR = (USER_CS << 16) | (KERNEL_CS << 32) = (0x1B << 16) | (0x08 << 32)
+	 * So STAR = (USER_CS << 16) | (KERNEL_CS << 32) = (0x1B << 16) | (0x08 <<
+	 * 32)
 	 */
 	uint64_t star_value = ((uint64_t)0x10 << 48) | ((uint64_t)KERNEL_CS << 32);
 	write_msr(MSR_STAR, star_value);
@@ -119,8 +120,8 @@ void enable_syscall_mechanism(void) {
 	print_hex((uint32_t)((uintptr_t)syscall_entry >> 32), 0x0A);
 	print_str(")\n", 0x0A);
 
-	/* Step 4: Configure SFMASK to clear IF flag (bit 9) and TF flag (bit 8) on SYSCALL
-	 * This ensures interrupts are disabled when entering kernel mode
+	/* Step 4: Configure SFMASK to clear IF flag (bit 9) and TF flag (bit 8) on
+	 * SYSCALL This ensures interrupts are disabled when entering kernel mode
 	 */
 	write_msr(MSR_SFMASK, (1u << 9) | (1u << 8)); /* Clear IF and TF flags */
 
@@ -128,5 +129,6 @@ void enable_syscall_mechanism(void) {
 	print_hex(((1u << 9) | (1u << 8)), 0x0A);
 	print_str(")\n", 0x0A);
 
-	print_str("SYSCALL: SYSCALL/SYSRET mechanism initialized successfully\n", 0x0A);
+	print_str("SYSCALL: SYSCALL/SYSRET mechanism initialized successfully\n",
+			  0x0A);
 }

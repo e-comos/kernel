@@ -1,17 +1,17 @@
 /*
-    E-comOS Kernel - A Microkernel for E-comOS
-    Copyright (C) 2025,2026  Saladin5101
+	E-comOS Kernel - A Microkernel for E-comOS
+	Copyright (C) 2025,2026  Saladin5101
 
-    This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU Affero General Public License as published
-    by the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
+	This program is free software: you can redistribute it and/or modify
+	it under the terms of the GNU Affero General Public License as published
+	by the Free Software Foundation, either version 3 of the License, or
+	(at your option) any later version.
 
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
+	This program is distributed in the hope that it will be useful,
+	but WITHOUT ANY WARRANTY; without even the implied warranty of
 
-    You should have received a copy of the GNU Affero General Public License
-    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+	You should have received a copy of the GNU Affero General Public License
+	along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 #ifndef KERNEL_SCHED_H
 #define KERNEL_SCHED_H
@@ -41,7 +41,7 @@ typedef struct thread {
 	} block_data;
 	uint64_t gs_base; /* Per-thread user GS base (IA32_GS_BASE) */
 	/* Just for that fuck ebts can run. */
-	ipc_message_t *ipc_queue[IPC_MAX_QUEUE_SIZE];
+	ipc_message_t* ipc_queue[IPC_MAX_QUEUE_SIZE];
 	uint32_t ipc_head;
 	uint32_t ipc_tail;
 	uint32_t ipc_count;
@@ -51,8 +51,8 @@ void sched_init(void);
 int sched_create_thread(void (*entry_point)(void));
 void sched_yield(void);
 void sched_schedule(void);
-Thread *sched_get_thread_by_pid(uint32_t pid);
-Thread *sched_get_current_thread(void);
+Thread* sched_get_thread_by_pid(uint32_t pid);
+Thread* sched_get_current_thread(void);
 uint32_t sched_get_current_pid(void);
 
 #endif

@@ -1,6 +1,6 @@
 /*
-    E-comOS Kernel - Address Space Management
-    Copyright (C) 2025,2026  Saladin5101
+	E-comOS Kernel - Address Space Management
+	Copyright (C) 2025,2026  Saladin5101
 */
 
 #include <kernel/address_space.h>
@@ -27,14 +27,14 @@ int as_destroy(address_space as) {
 	return 0;
 }
 
-int as_map(address_space as, uint32_t vaddr, uint32_t paddr,
-           uint32_t size, uint32_t flags) {
+int as_map(address_space as, uint32_t vaddr, uint32_t paddr, uint32_t size,
+		   uint32_t flags) {
 	if (as == 0 || as >= MAX_ADDRESS_SPACES || !as_used[as])
 		return -1;
 	uint32_t pages = (size + PAGE_SIZE - 1) / PAGE_SIZE;
 	for (uint32_t i = 0; i < pages; i++) {
-		int rc = mm_map_page(vaddr + i * PAGE_SIZE,
-		                     paddr + i * PAGE_SIZE, flags);
+		int rc =
+			mm_map_page(vaddr + i * PAGE_SIZE, paddr + i * PAGE_SIZE, flags);
 		if (rc != 0)
 			return rc;
 	}

@@ -1,19 +1,19 @@
 /*
-    E-comOS Kernel - Syscall handler
-    Copyright (C) 2025,2026  Saladin5101
+	E-comOS Kernel - Syscall handler
+	Copyright (C) 2025,2026  Saladin5101
 
-    This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU Affero General Public License as published
-    by the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
+	This program is free software: you can redistribute it and/or modify
+	it under the terms of the GNU Affero General Public License as published
+	by the Free Software Foundation, either version 3 of the License, or
+	(at your option) any later version.
 
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU Affero General Public License for more details.
+	This program is distributed in the hope that it will be useful,
+	but WITHOUT ANY WARRANTY; without even the implied warranty of
+	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+	GNU Affero General Public License for more details.
 
-    You should have received a copy of the GNU Affero General Public License
-    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+	You should have received a copy of the GNU Affero General Public License
+	along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 #include <kernel/ipc.h>
@@ -55,16 +55,15 @@ void syscall_irq_init(void) {
 
 static int find_irq_waiter(uint32_t pid, uint8_t irq_num) {
 	for (uint32_t i = 0; i < num_waiters; i++) {
-		if (irq_waiters[i].is_active &&
-		    irq_waiters[i].pid == pid &&
-		    irq_waiters[i].irq_number == irq_num)
+		if (irq_waiters[i].is_active && irq_waiters[i].pid == pid &&
+			irq_waiters[i].irq_number == irq_num)
 			return (int)i;
 	}
 	return -1;
 }
 
-static int add_irq_waiter(uint32_t pid, uint8_t irq_num,
-                          uint8_t flags, uint32_t timeout_ms) {
+static int add_irq_waiter(uint32_t pid, uint8_t irq_num, uint8_t flags,
+						  uint32_t timeout_ms) {
 	if (find_irq_waiter(pid, irq_num) >= 0)
 		return -2;
 	for (uint32_t i = 0; i < MAX_IRQ_WAITERS; i++) {
@@ -100,7 +99,7 @@ void syscall_irq_notify(uint8_t irq_num) {
 		if (irq_waiters[i].irq_number != irq_num)
 			continue;
 		irq_waiters[i].is_active = 0;
-		Thread *t = sched_get_thread_by_pid(irq_waiters[i].pid);
+		Thread* t = sched_get_thread_by_pid(irq_waiters[i].pid);
 		if (t && t->state == THREAD_BLOCKED) {
 			t->state = THREAD_READY;
 			t->block_reason = BLOCK_REASON_NONE;
@@ -120,7 +119,7 @@ void syscall_irq_check_timeouts(void) {
 			continue;
 		uint32_t pid = irq_waiters[i].pid;
 		irq_waiters[i].is_active = 0;
-		Thread *t = sched_get_thread_by_pid(pid);
+		Thread* t = sched_get_thread_by_pid(pid);
 		if (t && t->state == THREAD_BLOCKED) {
 			t->state = THREAD_READY;
 			t->block_reason = BLOCK_REASON_NONE;
@@ -129,7 +128,8 @@ void syscall_irq_check_timeouts(void) {
 	}
 }
 
-static long irq_wait_syscall(uint8_t irq_num, uint8_t flags, uint32_t timeout_ms) {
+static long irq_wait_syscall(uint8_t irq_num, uint8_t flags,
+					uint32_t timeout_ms) {
 	if (irq_num >= MAX_IRQS)
 		return -1;
 	uint32_t pid = sched_get_current_pid();
@@ -145,7 +145,7 @@ static long irq_wait_syscall(uint8_t irq_num, uint8_t flags, uint32_t timeout_ms
 	int rc = add_irq_waiter(pid, irq_num, flags, timeout_ms);
 	if (rc < 0)
 		return rc;
-	Thread *t = sched_get_current_thread();
+	Thread* t = sched_get_current_thread();
 	if (!t) {
 		remove_irq_waiter(pid, irq_num);
 		return -4;
@@ -169,16 +169,24 @@ static long irq_wait_syscall(uint8_t irq_num, uint8_t flags, uint32_t timeout_ms
 	return 0;
 }
 
-long syscall_handler(uint32_t num, uint32_t arg1, uint32_t arg2, uint32_t arg3) {
+long syscall_handler(uint32_t num, uint32_t arg1, uint32_t arg2,
+					 uint32_t arg3) {
 	switch (num) {
 	case SYS_IPC_SEND: {
-        thread_id tid = (thread_id)arg1;
+		thread_id tid = (thread_id)arg1;
 		ipc_message_t kmsg;
-        memcpy(&kmsg, (const void*)(uintptr_t)arg2, sizeof(ipc_message_t));
-        return ipc_send((thread_id)tid, &kmsg);
-    }
-	case SYS_IPC_RECEIVE:
-		return ipc_receive((ipc_message_t *)(uintptr_t)arg1);
+		memcpy(&kmsg, (const void*)(uintptr_t)arg2, sizeof(ipc_message_t));
+		__asm__ volatile("" : : "r"(tid), "r"(&kmsg) : "memory");
+		return ipc_send((thread_id)tid, &kmsg);
+	}
+	case SYS_IPC_RECEIVE: {
+		uintptr_t uaddr = (uintptr_t)arg1;
+		if (uaddr < 0x400000 || uaddr >= 0x800000) {
+			return -1;
+		}
+		__asm__ volatile("" : : "r"(arg1) : "memory");
+		return ipc_receive((ipc_message_t*)(uintptr_t)arg1);
+	}
 	case SYS_THREAD_YIELD:
 		sched_yield();
 		return 0;
@@ -203,13 +211,13 @@ long syscall_handler(uint32_t num, uint32_t arg1, uint32_t arg2, uint32_t arg3) 
 	case SYS_MM_ALLOC_PAGES:
 		return (long)(uintptr_t)mm_alloc_pages(arg1);
 	case SYS_MM_FREE_PAGES:
-		mm_free_pages((void *)(uintptr_t)arg1, arg2);
+		mm_free_pages((void*)(uintptr_t)arg1, arg2);
 		return 0;
 	case SYS_GET_MONOTIME:
 		return (long)time_get_current_ms();
 	case SYS_GETRANDOM: {
-		/* Simple LCG seeded from monotonic time */
-		uint8_t *buf = (uint8_t *)(uintptr_t)arg1;
+		/* FIXME: Simple LCG seeded from monotonic time */
+		uint8_t* buf = (uint8_t*)(uintptr_t)arg1;
 		uint32_t len = arg2;
 		if (!buf)
 			return -1;
@@ -217,7 +225,8 @@ long syscall_handler(uint32_t num, uint32_t arg1, uint32_t arg2, uint32_t arg3) 
 		if (!rng_state)
 			rng_state = time_get_current_ms() ^ 0xDEADBEEFULL;
 		for (uint32_t i = 0; i < len; i++) {
-			rng_state = rng_state * 6364136223846793005ULL + 1442695040888963407ULL;
+			rng_state =
+				rng_state * 6364136223846793005ULL + 1442695040888963407ULL;
 			buf[i] = (uint8_t)(rng_state >> 33);
 		}
 		return 0;
@@ -227,8 +236,7 @@ long syscall_handler(uint32_t num, uint32_t arg1, uint32_t arg2, uint32_t arg3) 
 			char sysname[32];
 			char release[32];
 			char machine[32];
-		} *u =
-		    (void *)(uintptr_t)arg1;
+		}* u = (void*)(uintptr_t)arg1;
 		if (!u)
 			return -1;
 		const char *sn = "E-comOS", *rel = "0.1", *mach = "x86_64";

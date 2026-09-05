@@ -1,10 +1,10 @@
 /*
-    E-comOS Kernel - Main entry point
-    Copyright (C) 2025,2026  Saladin5101
+	E-comOS Kernel - Main entry point
+	Copyright (C) 2025,2026  Saladin5101
 
-    Precondition:  called from _start with interrupts disabled.
-    Precondition:  boot_params is either NULL or a valid UEFI memory map.
-    Postcondition: never returns.
+	Precondition:  called from _start with interrupts disabled.
+	Precondition:  boot_params is either NULL or a valid UEFI memory map.
+	Postcondition: never returns.
 */
 
 #include <kernel/arch/interrupts.h>
@@ -23,7 +23,7 @@
 
 extern void gdt_init(void);
 extern void enable_syscall_mechanism(void); /* SYSCALL/SYSRET support */
-void kernel_main(void *boot_info) {
+void kernel_main(void* boot_info) {
 	/* Interrupts are disabled on entry from _start */
 
 	clear_screen(0x1F);
@@ -73,7 +73,8 @@ void kernel_main(void *boot_info) {
 	print_str("Creating init service...\n", 0x1F);
 	int result = load_init_service_to_user_mode();
 	if (result < 0) {
-		kernel_panic("Failed to load init-service for system init , kernel abort");
+		kernel_panic(
+			"Failed to load init-service for system init , kernel abort");
 	}
 
 	print_str("init-service is backed from user mode", 0x0F);

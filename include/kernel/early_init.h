@@ -1,6 +1,6 @@
 /*
-    E-comOS Kernel - Early Initialization
-    Copyright (C) 2025,2026  Saladin5101
+	E-comOS Kernel - Early Initialization
+	Copyright (C) 2025,2026  Saladin5101
 */
 
 #ifndef KERNEL_EARLY_INIT_H

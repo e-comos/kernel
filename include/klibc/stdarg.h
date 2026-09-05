@@ -25,7 +25,7 @@
 #ifdef __arm__
 typedef __builtin_va_list va_list;
 #elif defined(__x86_64__)
-typedef char *va_list;
+typedef char* va_list;
 #else
 typedef __builtin_va_list va_list;
 #endif
@@ -33,9 +33,11 @@ typedef __builtin_va_list va_list;
 #define _VA_ALIGNMENT sizeof(int)
 #define _VA_ROUND_UP(n) (((n) + _VA_ALIGNMENT - 1) & ~(_VA_ALIGNMENT - 1))
 
-#define va_start(ap, last) ((ap) = (va_list) & (last) + _VA_ROUND_UP(sizeof(last)))
-#define va_arg(ap, type) (*(type *)((ap) += _VA_ROUND_UP(sizeof(type)), \
-	                                (ap) - _VA_ROUND_UP(sizeof(type))))
+#define va_start(ap, last)                                                     \
+	((ap) = (va_list) & (last) + _VA_ROUND_UP(sizeof(last)))
+#define va_arg(ap, type)                                                       \
+	(*(type*)((ap) += _VA_ROUND_UP(sizeof(type)),                              \
+			  (ap) - _VA_ROUND_UP(sizeof(type))))
 #define va_end(ap) ((ap) = (va_list)0)
 #define va_copy(dest, src) ((dest) = (src))
 #endif /* STDARG_H */

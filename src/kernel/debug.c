@@ -1,19 +1,19 @@
 /*
-    E-comOS Kernel - Early Initialization and Debugging
-    Copyright (C) 2025,2026  Saladin5101
+	E-comOS Kernel - Early Initialization and Debugging
+	Copyright (C) 2025,2026  Saladin5101
 
-    This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU Affero General Public License as published
-    by the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
+	This program is free software: you can redistribute it and/or modify
+	it under the terms of the GNU Affero General Public License as published
+	by the Free Software Foundation, either version 3 of the License, or
+	(at your option) any later version.
 
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU Affero General Public License for more details.
+	This program is distributed in the hope that it will be useful,
+	but WITHOUT ANY WARRANTY; without even the implied warranty of
+	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+	GNU Affero General Public License for more details.
 
-    You should have received a copy of the GNU Affero General Public License
-    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+	You should have received a copy of the GNU Affero General Public License
+	along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 #include <kernel/debug.h>
@@ -50,7 +50,7 @@ void early_debug_init(void) {
 	outb(COM1 + 4, 0x0B); /* IRQs enabled, RTS/DSR set */
 }
 
-void early_debug_puts(const char *str) {
+void early_debug_puts(const char* str) {
 	for (; *str; str++) {
 		/* Wait until the Transmit Holding Register is empty */
 		while (!(inb(COM1 + 5) & 0x20))
@@ -69,7 +69,7 @@ void early_debug_putc(char c) {
  * Kernel Panic and Logging
  *-----------------------------------------------------------------------------
  */
-void kernel_panic(const char *msg) {
+void kernel_panic(const char* msg) {
 	/* Disable interrupts immediately */
 	__asm__ volatile("cli");
 
@@ -86,8 +86,10 @@ void kernel_panic(const char *msg) {
 	__asm__ volatile("lea 0(%%rip), %0" : "=r"(rip));
 
 	char buf[128];
-	snprintf(buf, sizeof(buf), "RBP: 0x%016llX\nRSP: 0x%016llX\nRIP: 0x%016llX\n",
-	         (unsigned long long)rbp, (unsigned long long)rsp, (unsigned long long)rip);
+	snprintf(buf, sizeof(buf),
+			 "RBP: 0x%016llX\nRSP: 0x%016llX\nRIP: 0x%016llX\n",
+			 (unsigned long long)rbp, (unsigned long long)rsp,
+			 (unsigned long long)rip);
 	print_str(buf, 0x4F);
 
 	/* Output to serial port for redundancy */
@@ -95,8 +97,10 @@ void kernel_panic(const char *msg) {
 	early_debug_puts("Message: ");
 	early_debug_puts(msg);
 	early_debug_puts("\n\n");
-	snprintf(buf, sizeof(buf), "RBP: 0x%016llX\nRSP: 0x%016llX\nRIP: 0x%016llX\n",
-	         (unsigned long long)rbp, (unsigned long long)rsp, (unsigned long long)rip);
+	snprintf(buf, sizeof(buf),
+			 "RBP: 0x%016llX\nRSP: 0x%016llX\nRIP: 0x%016llX\n",
+			 (unsigned long long)rbp, (unsigned long long)rsp,
+			 (unsigned long long)rip);
 	early_debug_puts(buf);
 
 	/* Halt the system indefinitely */
@@ -105,7 +109,7 @@ void kernel_panic(const char *msg) {
 	}
 }
 
-void kernel_log(const char *msg) {
+void kernel_log(const char* msg) {
 	/* Log to screen (light gray on black) */
 	print_str("[LOG] ", 0x07);
 	print_str(msg, 0x07);
@@ -126,13 +130,13 @@ void kernel_log(const char *msg) {
  */
 void enable_sse(void) {
 	uint32_t eax, ebx, ecx, edx;
-	const char *log_prefix = "[CPU/SSE] ";
+	const char* log_prefix = "[CPU/SSE] ";
 
 	/* Check for SSE support using CPUID.01h */
 	__asm__ volatile("cpuid"
-	                 : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
-	                 : "a"(1)
-	                 :);
+					 : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
+					 : "a"(1)
+					 :);
 
 	early_debug_puts(log_prefix);
 	if (!(edx & (1 << 25))) {
@@ -149,22 +153,22 @@ void enable_sse(void) {
 
 	/* Enable SSE/SSE2 in CR0 */
 	__asm__ volatile(
-	    "mov %%cr0, %%rax\n\t"
-	    "and $0xFFFB, %%ax\n\t" /* Clear CR0.EM (bit 2) - Enable FPU/MMX/SSE */
-	    "or  $0x2,    %%ax\n\t" /* Set   CR0.MP (bit 1) - Monitor Coprocessor */
-	    "mov %%rax, %%cr0"
-	    :
-	    :
-	    : "rax");
+		"mov %%cr0, %%rax\n\t"
+		"and $0xFFFB, %%ax\n\t" /* Clear CR0.EM (bit 2) - Enable FPU/MMX/SSE */
+		"or  $0x2,    %%ax\n\t" /* Set   CR0.MP (bit 1) - Monitor Coprocessor */
+		"mov %%rax, %%cr0"
+		:
+		:
+		: "rax");
 
 	/* Enable SSE/SSE2 in CR4 (OS support for FXSAVE/FXRSTOR and exceptions) */
-	__asm__ volatile(
-	    "mov %%cr4, %%rax\n\t"
-	    "or  $0x600, %%rax\n\t" /* Set CR4.OSFXSR (bit 9) and CR4.OSXMMEXCPT (bit 10) */
-	    "mov %%rax, %%cr4"
-	    :
-	    :
-	    : "rax");
+	__asm__ volatile("mov %%cr4, %%rax\n\t"
+					 "or  $0x600, %%rax\n\t" /* Set CR4.OSFXSR (bit 9) and
+												CR4.OSXMMEXCPT (bit 10) */
+					 "mov %%rax, %%cr4"
+					 :
+					 :
+					 : "rax");
 
 	/* Initialize the MXCSR control/status register to a clean state.
 	 * 0x1F80 = all exception masks set, rounding mode = round to nearest.
@@ -181,13 +185,13 @@ void enable_sse(void) {
  *-----------------------------------------------------------------------------
  */
 void enable_nxe(void) {
-	const char *log_prefix = "[CPU/NXE] ";
+	const char* log_prefix = "[CPU/NXE] ";
 
 	/* Check for NX support via CPUID extended leaf 0x80000001 */
 	uint32_t eax, ebx, ecx, edx;
 	__asm__ volatile("cpuid"
-	                 : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
-	                 : "a"(0x80000001));
+					 : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
+					 : "a"(0x80000001));
 
 	early_debug_puts(log_prefix);
 
@@ -220,7 +224,8 @@ void enable_nxe(void) {
  *
  * This function is called from the kernel boot strap code (written in assembly)
  * after the basic CPU mode (long mode) and a temporary stack are set up,
- * but before most kernel subsystems (memory manager, scheduler, etc.) are initialized.
+ * but before most kernel subsystems (memory manager, scheduler, etc.) are
+ * initialized.
  *
  * Parameters:
  *   multiboot_magic - The magic number from the bootloader (e.g., GRUB)
@@ -248,12 +253,15 @@ int early_kernel_init(uint32_t multiboot_magic, uint32_t multiboot_info) {
 	 */
 	enable_sse();
 
-	/* Step 3: (Placeholder) Future early initialization steps can be added here:
-	 *   - Parse Multiboot information to locate memory maps, kernel symbols, etc.
+	/* Step 3: (Placeholder) Future early initialization steps can be added
+	 * here:
+	 *   - Parse Multiboot information to locate memory maps, kernel symbols,
+	 * etc.
 	 *   - Initialize a basic VGA text mode console.
 	 *   - Set up a temporary memory map or allocator.
 	 */
 
-	early_debug_puts("[INIT] Early kernel initialization completed successfully.\n");
+	early_debug_puts(
+		"[INIT] Early kernel initialization completed successfully.\n");
 	return 0;
 }

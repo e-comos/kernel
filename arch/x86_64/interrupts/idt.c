@@ -1,19 +1,19 @@
 /*
-    E-com_os Kernel - Interrupt Descriptor Table (64-bit)
-    Copyright (C) 2025,2026  Saladin5101
+	E-com_os Kernel - Interrupt Descriptor Table (64-bit)
+	Copyright (C) 2025,2026  Saladin5101
 
-    This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU Affero General Public License as published
-    by the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
+	This program is free software: you can redistribute it and/or modify
+	it under the terms of the GNU Affero General Public License as published
+	by the Free Software Foundation, either version 3 of the License, or
+	(at your option) any later version.
 
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU Affero General Public License for more details.
+	This program is distributed in the hope that it will be useful,
+	but WITHOUT ANY WARRANTY; without even the implied warranty of
+	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+	GNU Affero General Public License for more details.
 
-    You should have received a copy of the GNU Affero General Public License
-    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+	You should have received a copy of the GNU Affero General Public License
+	along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 #include <kernel/arch/interrupts.h>
@@ -51,7 +51,8 @@ void idt_set_gate(uint8_t num, uint64_t base, uint16_t sel, uint8_t flags) {
 }
 
 /* Set gate with IST (Interrupt Stack Table) support */
-static void idt_set_gate_ist(uint8_t num, uint64_t base, uint16_t sel, uint8_t flags, uint8_t ist) {
+static void idt_set_gate_ist(uint8_t num, uint64_t base, uint16_t sel,
+							 uint8_t flags, uint8_t ist) {
 	idt[num].offset_low = base & 0xFFFF;
 	idt[num].selector = sel;
 	idt[num].ist = ist & 0x07; /* IST 1-7, 0 = no IST */
@@ -62,7 +63,8 @@ static void idt_set_gate_ist(uint8_t num, uint64_t base, uint16_t sel, uint8_t f
 }
 
 #define GATE(n, fn) idt_set_gate((n), (uint64_t)(uintptr_t)(fn), 0x08, 0x8E)
-#define GATE_IST(n, fn) idt_set_gate_ist((n), (uint64_t)(uintptr_t)(fn), 0x08, 0x8E, 1)
+#define GATE_IST(n, fn)                                                        \
+	idt_set_gate_ist((n), (uint64_t)(uintptr_t)(fn), 0x08, 0x8E, 1)
 #define UGATE(n, fn) idt_set_gate((n), (uint64_t)(uintptr_t)(fn), 0x08, 0xEE)
 
 void idt_init(void) {

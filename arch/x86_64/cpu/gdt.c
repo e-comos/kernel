@@ -1,18 +1,18 @@
 /*
-    E-comOS Kernel - Global Descriptor Table + TSS (64-bit)
-    Copyright (C) 2025,2026  Saladin5101
+	E-comOS Kernel - Global Descriptor Table + TSS (64-bit)
+	Copyright (C) 2025,2026  Saladin5101
 
-    GDT layout:
-      0x00  null
-      0x08  kernel code  (ring 0, 64-bit)
-      0x10  kernel data  (ring 0)
-      0x18  user   code  (ring 3, 64-bit)   selector 0x23 (|3)
-      0x20  user   data  (ring 3)            selector 0x1B (|3)
-      0x28  TSS low  (16 bytes, two GDT slots)
-      0x30  TSS high
+	GDT layout:
+	  0x00  null
+	  0x08  kernel code  (ring 0, 64-bit)
+	  0x10  kernel data  (ring 0)
+	  0x18  user   code  (ring 3, 64-bit)   selector 0x23 (|3)
+	  0x20  user   data  (ring 3)            selector 0x1B (|3)
+	  0x28  TSS low  (16 bytes, two GDT slots)
+	  0x30  TSS high
 
-    64-bit TSS (Intel SDM Vol.3 §7.7):
-      rsp0 at offset +4 (used on ring-3 → ring-0 transition)
+	64-bit TSS (Intel SDM Vol.3 §7.7):
+	  rsp0 at offset +4 (used on ring-3 → ring-0 transition)
 */
 
 #include "../internal/gdt.h" /* Use the user's unmodified header */
@@ -77,7 +77,8 @@ static uint8_t interrupt_stack[32768] __attribute__((aligned(16)));
 /* ------------------------------------------------------------------ */
 /* Public Set Gate Function (conforms to gdt.h)                       */
 /* ------------------------------------------------------------------ */
-void gdt_set_gate(int num, uint32_t base, uint32_t limit, uint8_t access, uint8_t gran) {
+void gdt_set_gate(int num, uint32_t base, uint32_t limit, uint8_t access,
+				  uint8_t gran) {
 	if (num < 0 || num >= 7)
 		return;
 	gdt[num].base_low = (uint16_t)(base & 0xFFFFu);
@@ -109,7 +110,7 @@ void gdt_init(void) {
 	uint64_t tss_base = (uint64_t)(uintptr_t)&tss;
 	uint32_t tss_limit = (uint32_t)(sizeof(Tss64) - 1u);
 
-	tss_descriptor *td = (tss_descriptor *)&gdt[5];
+	tss_descriptor* td = (tss_descriptor*)&gdt[5];
 	td->limit_low = (uint16_t)(tss_limit & 0xFFFFu);
 	td->base_low = (uint16_t)(tss_base & 0xFFFFu);
 	td->base_middle = (uint8_t)((tss_base >> 16) & 0xFFu);
@@ -121,11 +122,12 @@ void gdt_init(void) {
 
 	/* Manually zero the TSS to avoid garbage-memory traps */
 	for (uint32_t i = 0; i < sizeof(Tss64); i++) {
-		((uint8_t *)&tss)[i] = 0;
+		((uint8_t*)&tss)[i] = 0;
 	}
 
 	tss.rsp0 = (uint64_t)(uintptr_t)(kernel_stack + sizeof(kernel_stack));
-	tss.ist[0] = (uint64_t)(uintptr_t)(interrupt_stack + sizeof(interrupt_stack));
+	tss.ist[0] =
+		(uint64_t)(uintptr_t)(interrupt_stack + sizeof(interrupt_stack));
 	tss.iomap_base = (uint16_t)sizeof(Tss64);
 
 	/* Load the GDTR base pointing to our clean, static global array */
@@ -133,21 +135,23 @@ void gdt_init(void) {
 	gdtp.base = (uint64_t)(uintptr_t)gdt;
 
 	__asm__ volatile(
-	    "lgdt %0\n"
-	    /* Far return to reload CS with kernel code selector 0x08 */
-	    "pushq $0x08\n"
-	    "leaq  1f(%%rip), %%rax\n"
-	    "pushq %%rax\n"
-	    "lretq\n"
-	    "1:\n"
-	    "movw $0x10, %%ax\n" /* kernel data selector */
-	    "movw %%ax, %%ds\n"
-	    "movw %%ax, %%es\n"
-	    "movw %%ax, %%ss\n"
-	    "xorw %%ax, %%ax\n" /* FS/GS = null in 64-bit mode */
-	    "movw %%ax, %%fs\n"
-	    "movw %%ax, %%gs\n"
-	    : : "m"(gdtp) : "rax", "memory");
+		"lgdt %0\n"
+		/* Far return to reload CS with kernel code selector 0x08 */
+		"pushq $0x08\n"
+		"leaq  1f(%%rip), %%rax\n"
+		"pushq %%rax\n"
+		"lretq\n"
+		"1:\n"
+		"movw $0x10, %%ax\n" /* kernel data selector */
+		"movw %%ax, %%ds\n"
+		"movw %%ax, %%es\n"
+		"movw %%ax, %%ss\n"
+		"xorw %%ax, %%ax\n" /* FS/GS = null in 64-bit mode */
+		"movw %%ax, %%fs\n"
+		"movw %%ax, %%gs\n"
+		:
+		: "m"(gdtp)
+		: "rax", "memory");
 
 	/* Load TSS selector (Index 5 = 5 * 8 = 40 = 0x28) */
 	__asm__ volatile("ltr %%ax" : : "a"((uint16_t)0x28u));

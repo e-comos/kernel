@@ -1,6 +1,6 @@
 /*
-    E-comOS Kernel - Service Registry
-    Copyright (C) 2025,2026  Saladin5101
+	E-comOS Kernel - Service Registry
+	Copyright (C) 2025,2026  Saladin5101
 */
 
 #include <kernel/service.h>
@@ -10,7 +10,7 @@
 static Service service_table[MAX_SERVICES];
 static int service_count = 0;
 
-int service_register(service_id id, uint32_t provider_pid, const char *name) {
+int service_register(service_id id, uint32_t provider_pid, const char* name) {
 	if (service_count >= MAX_SERVICES)
 		return -1;
 	for (int i = 0; i < service_count; i++) {
@@ -49,7 +49,7 @@ uint32_t service_lookup(service_id id) {
 	return 0;
 }
 
-int service_call(service_id id, void *request, void *response) {
+int service_call(service_id id, void* request, void* response) {
 	(void)id;
 	(void)request;
 	(void)response;

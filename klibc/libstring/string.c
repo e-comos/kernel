@@ -8,9 +8,9 @@
  * Memory manipulation functions
  * ================================================================ */
 
-void *memcpy(void *dest, const void *src, size_t n) {
-	char *d = (char *)dest;
-	const char *s = (const char *)src;
+void* memcpy(void* dest, const void* src, size_t n) {
+	char* d = (char*)dest;
+	const char* s = (const char*)src;
 
 	for (size_t i = 0; i < n; i++) {
 		d[i] = s[i];
@@ -18,8 +18,8 @@ void *memcpy(void *dest, const void *src, size_t n) {
 	return dest;
 }
 
-void *memset(void *s, int c, size_t n) {
-	unsigned char *p = (unsigned char *)s;
+void* memset(void* s, int c, size_t n) {
+	unsigned char* p = (unsigned char*)s;
 	unsigned char uc = (unsigned char)c;
 
 	for (size_t i = 0; i < n; i++) {
@@ -28,9 +28,9 @@ void *memset(void *s, int c, size_t n) {
 	return s;
 }
 
-void *memmove(void *dest, const void *src, size_t n) {
-	char *d = (char *)dest;
-	const char *s = (const char *)src;
+void* memmove(void* dest, const void* src, size_t n) {
+	char* d = (char*)dest;
+	const char* s = (const char*)src;
 
 	if (d < s) {
 		/* Copy forward */
@@ -46,9 +46,9 @@ void *memmove(void *dest, const void *src, size_t n) {
 	return dest;
 }
 
-int memcmp(const void *s1, const void *s2, size_t n) {
-	const unsigned char *p1 = (const unsigned char *)s1;
-	const unsigned char *p2 = (const unsigned char *)s2;
+int memcmp(const void* s1, const void* s2, size_t n) {
+	const unsigned char* p1 = (const unsigned char*)s1;
+	const unsigned char* p2 = (const unsigned char*)s2;
 
 	for (size_t i = 0; i < n; i++) {
 		if (p1[i] != p2[i]) {
@@ -62,7 +62,7 @@ int memcmp(const void *s1, const void *s2, size_t n) {
  * String manipulation functions
  * ================================================================ */
 
-size_t strlen(const char *s) {
+size_t strlen(const char* s) {
 	size_t len = 0;
 	while (s[len] != '\0') {
 		len++;
@@ -70,8 +70,8 @@ size_t strlen(const char *s) {
 	return len;
 }
 
-char *strcpy(char *dest, const char *src) {
-	char *d = dest;
+char* strcpy(char* dest, const char* src) {
+	char* d = dest;
 	while (*src) {
 		*d++ = *src++;
 	}
@@ -79,8 +79,8 @@ char *strcpy(char *dest, const char *src) {
 	return dest;
 }
 
-char *strncpy(char *dest, const char *src, size_t n) {
-	char *d = dest;
+char* strncpy(char* dest, const char* src, size_t n) {
+	char* d = dest;
 	size_t i;
 
 	for (i = 0; i < n && src[i] != '\0'; i++) {
@@ -94,8 +94,8 @@ char *strncpy(char *dest, const char *src, size_t n) {
 	return dest;
 }
 
-char *strcat(char *dest, const char *src) {
-	char *d = dest;
+char* strcat(char* dest, const char* src) {
+	char* d = dest;
 
 	/* Find end of dest */
 	while (*d != '\0') {
@@ -111,8 +111,8 @@ char *strcat(char *dest, const char *src) {
 	return dest;
 }
 
-char *strncat(char *dest, const char *src, size_t n) {
-	char *d = dest;
+char* strncat(char* dest, const char* src, size_t n) {
+	char* d = dest;
 
 	/* Find end of dest */
 	while (*d != '\0') {
@@ -129,15 +129,15 @@ char *strncat(char *dest, const char *src, size_t n) {
 	return dest;
 }
 
-int strcmp(const char *s1, const char *s2) {
+int strcmp(const char* s1, const char* s2) {
 	while (*s1 && (*s1 == *s2)) {
 		s1++;
 		s2++;
 	}
-	return *(const unsigned char *)s1 - *(const unsigned char *)s2;
+	return *(const unsigned char*)s1 - *(const unsigned char*)s2;
 }
 
-int strncmp(const char *s1, const char *s2, size_t n) {
+int strncmp(const char* s1, const char* s2, size_t n) {
 	for (size_t i = 0; i < n; i++) {
 		if (s1[i] != s2[i]) {
 			return (unsigned char)s1[i] - (unsigned char)s2[i];
@@ -149,33 +149,33 @@ int strncmp(const char *s1, const char *s2, size_t n) {
 	return 0;
 }
 
-char *strchr(const char *s, int c) {
+char* strchr(const char* s, int c) {
 	while (*s != '\0') {
 		if (*s == (char)c) {
-			return (char *)s;
+			return (char*)s;
 		}
 		s++;
 	}
 	return NULL;
 }
 
-char *strrchr(const char *s, int c) {
-	const char *last = NULL;
+char* strrchr(const char* s, int c) {
+	const char* last = NULL;
 	while (*s != '\0') {
 		if (*s == (char)c) {
 			last = s;
 		}
 		s++;
 	}
-	return (char *)last;
+	return (char*)last;
 }
 
-char *strrev(char *s) {
+char* strrev(char* s) {
 	if (!s)
 		return NULL;
 
-	char *start = s;
-	char *end = s;
+	char* start = s;
+	char* end = s;
 	char temp;
 
 	/* Find the end of the string */
@@ -200,13 +200,13 @@ char *strrev(char *s) {
  * Memory and string search functions
  * ================================================================ */
 
-void *memchr(const void *s, int c, size_t n) {
-	const unsigned char *p = (const unsigned char *)s;
+void* memchr(const void* s, int c, size_t n) {
+	const unsigned char* p = (const unsigned char*)s;
 	unsigned char uc = (unsigned char)c;
 
 	for (size_t i = 0; i < n; i++) {
 		if (p[i] == uc) {
-			return (void *)(p + i);
+			return (void*)(p + i);
 		}
 	}
 	return NULL;
@@ -216,12 +216,13 @@ void *memchr(const void *s, int c, size_t n) {
  * String to number conversion functions
  * ================================================================ */
 
-int atoi(const char *s) {
+int atoi(const char* s) {
 	int result = 0;
 	int sign = 1;
 
 	/* Skip whitespace */
-	while (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r' || *s == '\f' || *s == '\v') {
+	while (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r' || *s == '\f' ||
+		   *s == '\v') {
 		s++;
 	}
 
@@ -242,12 +243,13 @@ int atoi(const char *s) {
 	return sign * result;
 }
 
-long strtol(const char *s, char **endptr, int base) {
+long strtol(const char* s, char** endptr, int base) {
 	long result = 0;
 	int sign = 1;
 
 	/* Skip whitespace */
-	while (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r' || *s == '\f' || *s == '\v') {
+	while (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r' || *s == '\f' ||
+		   *s == '\v') {
 		s++;
 	}
 
@@ -296,17 +298,18 @@ long strtol(const char *s, char **endptr, int base) {
 	}
 
 	if (endptr) {
-		*endptr = (char *)s;
+		*endptr = (char*)s;
 	}
 
 	return sign * result;
 }
 
-unsigned long strtoul(const char *s, char **endptr, int base) {
+unsigned long strtoul(const char* s, char** endptr, int base) {
 	unsigned long result = 0;
 
 	/* Skip whitespace */
-	while (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r' || *s == '\f' || *s == '\v') {
+	while (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r' || *s == '\f' ||
+		   *s == '\v') {
 		s++;
 	}
 
@@ -347,7 +350,7 @@ unsigned long strtoul(const char *s, char **endptr, int base) {
 	}
 
 	if (endptr) {
-		*endptr = (char *)s;
+		*endptr = (char*)s;
 	}
 
 	return result;
@@ -357,14 +360,14 @@ unsigned long strtoul(const char *s, char **endptr, int base) {
  * String formatting functions (simple implementation)
  * ================================================================ */
 
-static void format_putc(char *buf, int *pos, int max_len, char c) {
+static void format_putc(char* buf, int* pos, int max_len, char c) {
 	if (*pos < max_len - 1) {
 		buf[*pos] = c;
 		(*pos)++;
 	}
 }
 
-int sprintf(char *buf, const char *format, ...) {
+int sprintf(char* buf, const char* format, ...) {
 	int pos = 0;
 	int max_len = 1024; /* Simple limit */
 
@@ -410,7 +413,7 @@ int sprintf(char *buf, const char *format, ...) {
 		}
 
 		case 's': {
-			char *str = va_arg(args, char *);
+			char* str = va_arg(args, char*);
 			while (*str) {
 				format_putc(buf, &pos, max_len, *str);
 				str++;
@@ -462,7 +465,7 @@ int sprintf(char *buf, const char *format, ...) {
 	return pos;
 }
 
-int snprintf(char *buf, size_t size, const char *format, ...) {
+int snprintf(char* buf, size_t size, const char* format, ...) {
 	int pos = 0;
 
 	va_list args;
@@ -507,7 +510,7 @@ int snprintf(char *buf, size_t size, const char *format, ...) {
 		}
 
 		case 's': {
-			char *str = va_arg(args, char *);
+			char* str = va_arg(args, char*);
 			while (*str) {
 				format_putc(buf, &pos, (int)size, *str);
 				str++;
@@ -584,7 +587,8 @@ int isalnum(int c) {
 }
 
 int isspace(int c) {
-	return (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v');
+	return (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' ||
+			c == '\v');
 }
 
 /* ================================================================

@@ -14,8 +14,9 @@
 
 /* ---------------------------------------------------------------------------
  * External print functions (implemented in src/printkit/print.c)
- * --------------------------------------------------------------------------- */
-void print_str(const char *str, uint8_t color);
+ * ---------------------------------------------------------------------------
+ */
+void print_str(const char* str, uint8_t color);
 void print_hex64(uint64_t value, uint8_t color);
 void print_num64(uint64_t value, uint8_t color);
 
@@ -32,7 +33,8 @@ void print_num64(uint64_t value, uint8_t color);
  *   int_no  err_code
  * Then CPU-pushed frame:
  *   rip  cs  rflags  rsp  ss
- * --------------------------------------------------------------------------- */
+ * ---------------------------------------------------------------------------
+ */
 typedef struct {
 	uint64_t r15, r14, r13, r12, r11, r10, r9, r8;
 	uint64_t rbp, rdi, rsi, rdx, rcx, rbx, rax;
@@ -42,45 +44,47 @@ typedef struct {
 
 /* ---------------------------------------------------------------------------
  * Exception names (Intel SDM Vol.3, Table 6-1)
- * --------------------------------------------------------------------------- */
-static const char *exc_names[32] = {
-    "Divide Error",                   /*  0  #DE */
-    "Debug",                          /*  1  #DB */
-    "Non-Maskable Interrupt",         /*  2  NMI */
-    "Breakpoint",                     /*  3  #BP */
-    "Overflow",                       /*  4  #OF */
-    "Bound Range Exceeded",           /*  5  #BR */
-    "Invalid Opcode",                 /*  6  #UD */
-    "Device Not Available",           /*  7  #NM */
-    "Double Fault",                   /*  8  #DF */
-    "Coprocessor Segment Overrun",    /*  9       */
-    "Invalid TSS",                    /* 10  #TS */
-    "Segment Not Present",            /* 11  #NP */
-    "Stack-Segment Fault",            /* 12  #SS */
-    "General Protection Fault",       /* 13  #GP */
-    "Page Fault",                     /* 14  #PF */
-    "Reserved",                       /* 15       */
-    "x87 Floating-Point Exception",   /* 16  #MF */
-    "Alignment Check",                /* 17  #AC */
-    "Machine Check",                  /* 18  #MC */
-    "SIMD Floating-Point Exception",  /* 19  #XM */
-    "Virtualization Exception",       /* 20  #VE */
-    "Control-Protection Exception",   /* 21  #CP */
-    "Reserved",                       /* 22       */
-    "Reserved",                       /* 23       */
-    "Reserved",                       /* 24       */
-    "Reserved",                       /* 25       */
-    "Reserved",                       /* 26       */
-    "Reserved",                       /* 27       */
-    "Hypervisor Injection Exception", /* 28  #HV */
-    "VMM Communication Exception",    /* 29  #VC */
-    "Security Exception",             /* 30  #SX */
-    "Reserved",                       /* 31       */
+ * ---------------------------------------------------------------------------
+ */
+static const char* exc_names[32] = {
+	"Divide Error",					  /*  0  #DE */
+	"Debug",						  /*  1  #DB */
+	"Non-Maskable Interrupt",		  /*  2  NMI */
+	"Breakpoint",					  /*  3  #BP */
+	"Overflow",						  /*  4  #OF */
+	"Bound Range Exceeded",			  /*  5  #BR */
+	"Invalid Opcode",				  /*  6  #UD */
+	"Device Not Available",			  /*  7  #NM */
+	"Double Fault",					  /*  8  #DF */
+	"Coprocessor Segment Overrun",	  /*  9       */
+	"Invalid TSS",					  /* 10  #TS */
+	"Segment Not Present",			  /* 11  #NP */
+	"Stack-Segment Fault",			  /* 12  #SS */
+	"General Protection Fault",		  /* 13  #GP */
+	"Page Fault",					  /* 14  #PF */
+	"Reserved",						  /* 15       */
+	"x87 Floating-Point Exception",	  /* 16  #MF */
+	"Alignment Check",				  /* 17  #AC */
+	"Machine Check",				  /* 18  #MC */
+	"SIMD Floating-Point Exception",  /* 19  #XM */
+	"Virtualization Exception",		  /* 20  #VE */
+	"Control-Protection Exception",	  /* 21  #CP */
+	"Reserved",						  /* 22       */
+	"Reserved",						  /* 23       */
+	"Reserved",						  /* 24       */
+	"Reserved",						  /* 25       */
+	"Reserved",						  /* 26       */
+	"Reserved",						  /* 27       */
+	"Hypervisor Injection Exception", /* 28  #HV */
+	"VMM Communication Exception",	  /* 29  #VC */
+	"Security Exception",			  /* 30  #SX */
+	"Reserved",						  /* 31       */
 };
 
 /* ---------------------------------------------------------------------------
  * Inline CR readers
- * --------------------------------------------------------------------------- */
+ * ---------------------------------------------------------------------------
+ */
 static inline uint64_t read_cr0(void) {
 	uint64_t v;
 	__asm__ volatile("movq %%cr0, %0" : "=r"(v));
@@ -104,8 +108,9 @@ static inline uint64_t read_cr4(void) {
 
 /* ---------------------------------------------------------------------------
  * Small formatting helpers
- * --------------------------------------------------------------------------- */
-static void pr_reg(const char *name, uint64_t val, uint8_t c) {
+ * ---------------------------------------------------------------------------
+ */
+static void pr_reg(const char* name, uint64_t val, uint8_t c) {
 	print_str(name, c);
 	print_str(": 0x", c);
 	print_hex64(val, c);
@@ -113,7 +118,8 @@ static void pr_reg(const char *name, uint64_t val, uint8_t c) {
 
 /* ---------------------------------------------------------------------------
  * decode_cs - print GDT selector fields and privilege level
- * --------------------------------------------------------------------------- */
+ * ---------------------------------------------------------------------------
+ */
 static void decode_cs(uint64_t cs) {
 	uint8_t c = 0x0A;
 	print_str("CS Decode:\n", c);
@@ -145,8 +151,9 @@ static void decode_cs(uint64_t cs) {
  *
  * For fatal exceptions this function never returns (halts in place).
  * For #BP (3), #OF (4), and #PF (14) it returns so execution can resume.
- * --------------------------------------------------------------------------- */
-void isr_handler(registers_t *regs) {
+ * ---------------------------------------------------------------------------
+ */
+void isr_handler(registers_t* regs) {
 	/* ---- Page Fault handling (vector 14) --------------------------------- */
 	if (regs->int_no == 14) {
 		extern int handle_page_fault(uint64_t fault_addr, uint64_t error_code);
@@ -263,7 +270,7 @@ void isr_handler(registers_t *regs) {
 	if (interrupted_in_user) {
 		/* Validate user stack pointer before dereferencing it. */
 		if (regs->rsp >= 0x70000 && regs->rsp < 0x80000) {
-			uint64_t *stack = (uint64_t *)(uintptr_t)regs->rsp;
+			uint64_t* stack = (uint64_t*)(uintptr_t)regs->rsp;
 			for (int i = 0; i < 8; i++) {
 				print_str("  [RSP+", 0x0F);
 				print_num64((uint64_t)(i * 8), 0x0F);

@@ -1,6 +1,6 @@
 /*
-    E-comOS Kernel - Service Registry
-    Copyright (C) 2025,2026  Saladin5101
+	E-comOS Kernel - Service Registry
+	Copyright (C) 2025,2026  Saladin5101
 */
 
 #ifndef KERNEL_SERVICE_H
@@ -23,9 +23,9 @@ typedef struct {
 	uint32_t capabilities;
 } Service;
 
-int service_register(service_id id, uint32_t provider_pid, const char *name);
+int service_register(service_id id, uint32_t provider_pid, const char* name);
 int service_unregister(service_id id);
 uint32_t service_lookup(service_id id);
-int service_call(service_id id, void *request, void *response);
+int service_call(service_id id, void* request, void* response);
 
 #endif

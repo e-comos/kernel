@@ -28,6 +28,7 @@ struct page_directory {
 // Paging functions
 void paging_init(void);
 void paging_enable(void);
-int paging_map_page(uint32_t virtual_addr, uint32_t physical_addr, uint32_t flags);
+int paging_map_page(uint32_t virtual_addr, uint32_t physical_addr,
+					uint32_t flags);
 
 #endif

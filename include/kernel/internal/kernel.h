@@ -21,7 +21,7 @@ struct kernel_state {
 extern struct kernel_state g_kernel_state;
 
 // Internal kernel functions
-void kernel_panic(const char *message);
-void kernel_log(const char *message);
+void kernel_panic(const char* message);
+void kernel_log(const char* message);
 
 #endif

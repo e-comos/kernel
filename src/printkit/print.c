@@ -1,19 +1,19 @@
 /*
-    E-comOS Kernel - Print Utility
-    Copyright (C) 2025,2026  Saladin5101
+	E-comOS Kernel - Print Utility
+	Copyright (C) 2025,2026  Saladin5101
 
-    This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU Affero General Public License as published
-    by the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
+	This program is free software: you can redistribute it and/or modify
+	it under the terms of the GNU Affero General Public License as published
+	by the Free Software Foundation, either version 3 of the License, or
+	(at your option) any later version.
 
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU Affero General Public License for more details.
+	This program is distributed in the hope that it will be useful,
+	but WITHOUT ANY WARRANTY; without even the implied warranty of
+	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+	GNU Affero General Public License for more details.
 
-    You should have received a copy of the GNU Affero General Public License
-    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+	You should have received a copy of the GNU Affero General Public License
+	along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 /*
  * print.c - E-comOS Kernel Print Utility (Extended with paging and keyboard)
@@ -24,14 +24,15 @@
 
 #include "kernel/printkit/print.h"
 
-#define VGA_MEMORY ((volatile uint16_t *)0xB8000)
+#define VGA_MEMORY ((volatile uint16_t*)0xB8000)
 
 static int cursor_x = 0;
 static int cursor_y = 0;
 
 /* ---------------------------------------------------------------------------
  * Inline I/O helpers (PS/2 keyboard polling)
- * --------------------------------------------------------------------------- */
+ * ---------------------------------------------------------------------------
+ */
 static inline uint8_t inb(uint16_t port) {
 	uint8_t ret;
 	__asm__ volatile("inb %1, %0" : "=a"(ret) : "Nd"(port));
@@ -40,7 +41,8 @@ static inline uint8_t inb(uint16_t port) {
 
 /* ---------------------------------------------------------------------------
  * Basic VGA functions (unchanged)
- * --------------------------------------------------------------------------- */
+ * ---------------------------------------------------------------------------
+ */
 void clear_screen(uint8_t color) {
 	(void)color;
 	for (int i = 0; i < 80 * 25; i++)
@@ -55,7 +57,8 @@ void print_char(char c, uint8_t color) {
 	} else if (c == '\r') {
 		cursor_x = 0;
 	} else {
-		VGA_MEMORY[cursor_y * 80 + cursor_x] = ((uint16_t)color << 8) | (uint8_t)c;
+		VGA_MEMORY[cursor_y * 80 + cursor_x] =
+			((uint16_t)color << 8) | (uint8_t)c;
 		cursor_x++;
 	}
 	if (cursor_x >= 80) {
@@ -71,14 +74,14 @@ void print_char(char c, uint8_t color) {
 	}
 }
 
-void print_str(const char *str, uint8_t color) {
+void print_str(const char* str, uint8_t color) {
 	for (int i = 0; str[i] != '\0'; i++)
 		print_char(str[i], color);
 }
 
 void print_num(uint32_t num, uint8_t color) {
 	char buf[12];
-	char *ptr = buf + 11;
+	char* ptr = buf + 11;
 	*ptr = '\0';
 	if (num == 0) {
 		print_char('0', color);
@@ -92,7 +95,7 @@ void print_num(uint32_t num, uint8_t color) {
 }
 
 void print_hex(uint32_t num, uint8_t color) {
-	const char *digits = "0123456789ABCDEF";
+	const char* digits = "0123456789ABCDEF";
 	print_str("0x", color);
 	for (int i = 7; i >= 0; i--)
 		print_char(digits[(num >> (i * 4)) & 0xF], color);
@@ -100,9 +103,10 @@ void print_hex(uint32_t num, uint8_t color) {
 
 /* ---------------------------------------------------------------------------
  * Extended 64-bit printing
- * --------------------------------------------------------------------------- */
+ * ---------------------------------------------------------------------------
+ */
 void print_hex64(uint64_t value, uint8_t color) {
-	const char *digits = "0123456789ABCDEF";
+	const char* digits = "0123456789ABCDEF";
 	print_str("0x", color);
 	for (int i = 15; i >= 0; i--)
 		print_char(digits[(value >> (i * 4)) & 0xF], color);
@@ -110,7 +114,7 @@ void print_hex64(uint64_t value, uint8_t color) {
 
 void print_num64(uint64_t value, uint8_t color) {
 	char buf[22];
-	char *ptr = buf + 21;
+	char* ptr = buf + 21;
 	*ptr = '\0';
 	if (value == 0) {
 		print_char('0', color);
@@ -125,7 +129,8 @@ void print_num64(uint64_t value, uint8_t color) {
 
 /* ---------------------------------------------------------------------------
  * Paging support
- * --------------------------------------------------------------------------- */
+ * ---------------------------------------------------------------------------
+ */
 #define LINES_PER_PAGE 24
 static int paging_line_count = 0;
 
@@ -159,8 +164,8 @@ static int wait_for_user(void) {
 	}
 }
 
-void paged_print_str(const char *str, uint8_t color) {
-	for (const char *p = str; *p != '\0'; p++) {
+void paged_print_str(const char* str, uint8_t color) {
+	for (const char* p = str; *p != '\0'; p++) {
 		if (*p == '\n') {
 			paging_line_count++;
 			if (paging_line_count >= LINES_PER_PAGE) {
@@ -176,7 +181,7 @@ void paged_print_str(const char *str, uint8_t color) {
 }
 
 void paged_print_hex64(uint64_t value, uint8_t color) {
-	const char *digits = "0123456789ABCDEF";
+	const char* digits = "0123456789ABCDEF";
 	paged_print_str("0x", color);
 	for (int i = 15; i >= 0; i--) {
 		char c = digits[(value >> (i * 4)) & 0xF];
@@ -186,7 +191,7 @@ void paged_print_hex64(uint64_t value, uint8_t color) {
 
 void paged_print_num64(uint64_t value, uint8_t color) {
 	char buf[22];
-	char *ptr = buf + 21;
+	char* ptr = buf + 21;
 	*ptr = '\0';
 	if (value == 0) {
 		paged_print_str("0", color);

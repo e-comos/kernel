@@ -24,7 +24,7 @@ struct object {
 	uint32_t type;
 	uint32_t owner_process;
 	uint32_t ref_count;
-	void *data;
+	void* data;
 };
 
 // Object operations (USERSPACE SERVICE)

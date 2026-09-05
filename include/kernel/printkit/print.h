@@ -33,7 +33,7 @@
 /* Basic VGA output functions (unchanged) */
 void clear_screen(uint8_t color);
 void print_char(char c, uint8_t color);
-void print_str(const char *str, uint8_t color);
+void print_str(const char* str, uint8_t color);
 void print_num(uint32_t num, uint8_t color);
 void print_hex(uint32_t num, uint8_t color);
 
@@ -42,7 +42,7 @@ void print_hex64(uint64_t value, uint8_t color);
 void print_num64(uint64_t value, uint8_t color);
 
 /* Paged output functions (pause every 24 lines, wait for key) */
-void paged_print_str(const char *str, uint8_t color);
+void paged_print_str(const char* str, uint8_t color);
 void paged_print_hex64(uint64_t value, uint8_t color);
 void paged_print_num64(uint64_t value, uint8_t color);
 void reset_paging_counter(void);

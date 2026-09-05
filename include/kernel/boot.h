@@ -1,9 +1,9 @@
 /*
-    E-comOS Kernel - Boot Parameters
-    Copyright (C) 2025,2026  Saladin5101
+	E-comOS Kernel - Boot Parameters
+	Copyright (C) 2025,2026  Saladin5101
 
-    Precondition:  filled by the UEFI bootloader before jumping to _start.
-    Postcondition: read-only after kernel_main receives it.
+	Precondition:  filled by the UEFI bootloader before jumping to _start.
+	Postcondition: read-only after kernel_main receives it.
 */
 
 #ifndef KERNEL_BOOT_H
@@ -45,7 +45,7 @@ typedef struct {
 typedef struct {
 	u64 signature; // Magic number for validation
 	u32 version;   // Structure version
-	u32 size;      // Size of this structure
+	u32 size;	   // Size of this structure
 
 	u64 memory_map;
 	u64 memory_map_size;
@@ -59,8 +59,8 @@ typedef struct {
 	u32 frame_buffer_pitch;
 	u32 frame_buffer_bpp;
 
-	void *acpi_rsdt;
-	void *smbios_table;
+	void* acpi_rsdt;
+	void* smbios_table;
 	u32 daemon_process_id;
 	u64 shared_header_phys;
 	u64 kernel_base;
@@ -69,7 +69,7 @@ typedef struct {
 
 	char commandLine[256]; // Optional command line for kernel
 
-	void *runtime_service;
+	void* runtime_service;
 	u64 rt_service_phys;
 	u64 shared_buffer;
 	uint64_t shared_buffer_size;

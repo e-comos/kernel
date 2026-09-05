@@ -23,7 +23,7 @@ struct cpu_context {
 void arch_enable_interrupts(void);
 void arch_disable_interrupts(void);
 void arch_halt(void);
-void arch_context_switch(struct cpu_context *old, struct cpu_context *new);
+void arch_context_switch(struct cpu_context* old, struct cpu_context* new);
 // System call entry
 void syscall_entry(void);
 

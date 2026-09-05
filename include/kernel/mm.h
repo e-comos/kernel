@@ -1,9 +1,9 @@
 /*
-    E-comOS Kernel - Memory Manager Interface
-    Copyright (C) 2025,2026  Saladin5101
+	E-comOS Kernel - Memory Manager Interface
+	Copyright (C) 2025,2026  Saladin5101
 
-    Invariant: page_bitmap bit i == 1  ↔  physical page i is allocated.
-    Invariant: next_free_page ≤ MAX_PAGES at all times.
+	Invariant: page_bitmap bit i == 1  ↔  physical page i is allocated.
+	Invariant: next_free_page ≤ MAX_PAGES at all times.
 */
 
 #ifndef KERNEL_MM_H
@@ -16,7 +16,8 @@
 #define PAGE_SIZE 4096u
 #define MAX_PHYS_PAGES 4096u /* manages 16 MB: [0x100000, 0x1100000) */
 #define MAX_PAGES MAX_PHYS_PAGES
-#define KERNEL_BASE 0x100000u
+#define KERNEL_BASE 0xffff800000000000
+#define KERNEL_SIZE 0x2000000ULL
 
 #define MULTIBOOT_TAG_TYPE_END 0
 #define MULTIBOOT_TAG_TYPE_MODULE 3
@@ -40,21 +41,22 @@
  * Physical page-table bit definitions (match x86-64 hardware)
  * ------------------------------------------------------------ */
 #define MM_FLAG_PRESENT (1u << 0)  /* Page present (required) */
-#define MM_FLAG_READ (1u << 0)     /* Same as PRESENT; kept for compatibility */
-#define MM_FLAG_WRITE (1u << 1)    /* Writable */
-#define MM_FLAG_USER (1u << 2)     /* User accessible */
-#define MM_FLAG_PWT (1u << 3)      /* Write-through */
-#define MM_FLAG_PCD (1u << 4)      /* Cache disable */
+#define MM_FLAG_READ (1u << 0)	   /* Same as PRESENT; kept for compatibility */
+#define MM_FLAG_WRITE (1u << 1)	   /* Writable */
+#define MM_FLAG_USER (1u << 2)	   /* User accessible */
+#define MM_FLAG_PWT (1u << 3)	   /* Write-through */
+#define MM_FLAG_PCD (1u << 4)	   /* Cache disable */
 #define MM_FLAG_ACCESSED (1u << 5) /* Accessed (set by CPU) */
-#define MM_FLAG_DIRTY (1u << 6)    /* Dirty (set by CPU) */
-#define MM_FLAG_PAT (1u << 7)      /* Page attribute table */
+#define MM_FLAG_DIRTY (1u << 6)	   /* Dirty (set by CPU) */
+#define MM_FLAG_PAT (1u << 7)	   /* Page attribute table */
 #define MM_FLAG_GLOBAL (1u << 8)   /* Global TLB entry */
-#define MM_FLAG_NX (1ULL << 63)    /* No-eXecute - set to disable execution */
+#define MM_FLAG_NX (1ULL << 63)	   /* No-eXecute - set to disable execution */
 
 /* SECURE DATA PAGES (Execution Disabled) */
 #define MM_FLAG_KERNEL_RW (MM_FLAG_PRESENT | MM_FLAG_WRITE | MM_FLAG_NX)
 #define MM_FLAG_USER_RO (MM_FLAG_PRESENT | MM_FLAG_USER | MM_FLAG_NX)
-#define MM_FLAG_USER_RW (MM_FLAG_PRESENT | MM_FLAG_WRITE | MM_FLAG_USER | MM_FLAG_NX)
+#define MM_FLAG_USER_RW                                                        \
+	(MM_FLAG_PRESENT | MM_FLAG_WRITE | MM_FLAG_USER | MM_FLAG_NX)
 
 /* SECURE CODE PAGES (Execution Allowed, NX=0) */
 #define MM_FLAG_KERNEL_RX (MM_FLAG_PRESENT)
@@ -74,7 +76,7 @@ extern uint64_t pt[8][PT_ENTRIES];
 
 /* Memory allocation flags */
 #define KMALLOC_NORMAL 0x00
-#define KMALLOC_ZEROED 0x01  /* Clear memory to zeros */
+#define KMALLOC_ZEROED 0x01	 /* Clear memory to zeros */
 #define KMALLOC_ALIGNED 0x02 /* Return aligned memory (16-byte) */
 
 typedef enum {
@@ -98,26 +100,26 @@ typedef enum {
  *
  * boot_params may be NULL; in that case a conservative fallback is used.
  */
-memory_status mm_init(boot_params *boot_params);
+memory_status mm_init(boot_params* boot_params);
 
 /*
  * mm_alloc_page — allocate one physical page (4 KB).
  * Returns physical address, or NULL if OOM.
  * NOT interrupt-safe; caller must disable interrupts if needed.
  */
-void *mm_alloc_page(void);
+void* mm_alloc_page(void);
 
 /* mm_free_page — release a page previously returned by mm_alloc_page. */
-void mm_free_page(void *page);
+void mm_free_page(void* page);
 
 /*
  * mm_alloc_pages — allocate multiple contiguous physical pages.
  * Returns physical address, or NULL if OOM.
  */
-void *mm_alloc_pages(uint32_t count);
+void* mm_alloc_pages(uint32_t count);
 
 /* mm_free_pages — release contiguous pages. */
-void mm_free_pages(void *pages, uint32_t count);
+void mm_free_pages(void* pages, uint32_t count);
 
 /*
  * mm_map_page — insert a vaddr→paddr mapping into the current page tables.
@@ -137,25 +139,25 @@ void mm_enable_paging(void);
  * mm_phys_to_virt — convert physical address to kernel virtual address.
  * In identity-mapped setup, this is a simple cast.
  */
-static inline void *mm_phys_to_virt(uintptr_t phys) {
-	return (void *)(phys);
+static inline void* mm_phys_to_virt(uintptr_t phys) {
+	return (void*)(phys);
 }
 
 /*
  * mm_virt_to_phys — convert kernel virtual address to physical address.
  * In identity-mapped setup, this is a simple cast.
  */
-static inline uintptr_t mm_virt_to_phys(void *virt) {
+static inline uintptr_t mm_virt_to_phys(void* virt) {
 	return (uintptr_t)virt;
 }
 
 /*
  * Kernel heap allocator (built on top of page allocator)
  */
-void *kmalloc(size_t size, uint32_t flags);
-void kfree(void *ptr);
-void *kcalloc(size_t num, size_t size);
-void *krealloc(void *ptr, size_t size);
+void* kmalloc(size_t size, uint32_t flags);
+void kfree(void* ptr);
+void* kcalloc(size_t num, size_t size);
+void* krealloc(void* ptr, size_t size);
 
 /* Memory statistics */
 uint32_t mm_get_free_pages(void);

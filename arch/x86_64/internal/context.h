@@ -16,8 +16,8 @@ struct cpu_context {
 } __attribute__((packed));
 
 // Context switching functions
-void context_switch(struct cpu_context *old_ctx, struct cpu_context *new_ctx);
-void context_save(struct cpu_context *ctx);
-void context_restore(struct cpu_context *ctx);
+void context_switch(struct cpu_context* old_ctx, struct cpu_context* new_ctx);
+void context_save(struct cpu_context* ctx);
+void context_restore(struct cpu_context* ctx);
 
 #endif

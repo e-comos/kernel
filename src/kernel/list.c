@@ -1,17 +1,17 @@
 /*
-    E-comOS Kernel - Doubly-linked List
-    Copyright (C) 2025,2026  Saladin5101
+	E-comOS Kernel - Doubly-linked List
+	Copyright (C) 2025,2026  Saladin5101
 */
 
 #include <kernel/internal/list.h>
 
-void list_init(list_head *head) {
+void list_init(list_head* head) {
 	head->first = 0;
 	head->last = 0;
 	head->count = 0;
 }
 
-void list_add(list_head *head, list_node *node) {
+void list_add(list_head* head, list_node* node) {
 	node->next = 0;
 	node->prev = head->last;
 	if (head->last)
@@ -22,7 +22,7 @@ void list_add(list_head *head, list_node *node) {
 	head->count++;
 }
 
-void list_remove(list_head *head, list_node *node) {
+void list_remove(list_head* head, list_node* node) {
 	if (node->prev)
 		node->prev->next = node->next;
 	else

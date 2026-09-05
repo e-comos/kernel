@@ -18,6 +18,7 @@ struct multiboot_tag_module {
 	char cmdline[];
 };
 
-int load_driver_from_multiboot(void *mb_info_addr);
-int load_service_from_memory(uintptr_t phys_addr, uint32_t size, uintptr_t target_vaddr);
+int load_driver_from_multiboot(void* mb_info_addr);
+int load_service_from_memory(uintptr_t phys_addr, uint32_t size,
+							 uintptr_t target_vaddr);
 #endif

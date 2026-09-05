@@ -24,7 +24,7 @@
  * @param n Number of bytes to copy
  * @return Pointer to dest
  */
-void *memcpy(void *dest, const void *src, size_t n);
+void* memcpy(void* dest, const void* src, size_t n);
 
 /**
  * Fill memory with a constant byte
@@ -34,7 +34,7 @@ void *memcpy(void *dest, const void *src, size_t n);
  * @param n Number of bytes to fill
  * @return Pointer to s
  */
-void *memset(void *s, int c, size_t n);
+void* memset(void* s, int c, size_t n);
 
 /**
  * Copy n bytes from src to dest, handling overlapping memory
@@ -44,7 +44,7 @@ void *memset(void *s, int c, size_t n);
  * @param n Number of bytes to copy
  * @return Pointer to dest
  */
-void *memmove(void *dest, const void *src, size_t n);
+void* memmove(void* dest, const void* src, size_t n);
 
 /**
  * Compare two memory areas
@@ -54,7 +54,7 @@ void *memmove(void *dest, const void *src, size_t n);
  * @param n Number of bytes to compare
  * @return 0 if equal, <0 if s1 < s2, >0 if s1 > s2
  */
-int memcmp(const void *s1, const void *s2, size_t n);
+int memcmp(const void* s1, const void* s2, size_t n);
 
 /* ================================================================
  * String manipulation functions
@@ -66,7 +66,7 @@ int memcmp(const void *s1, const void *s2, size_t n);
  * @param s Null-terminated string
  * @return Length of the string (excluding null terminator)
  */
-size_t strlen(const char *s);
+size_t strlen(const char* s);
 
 /**
  * Copy a string
@@ -75,7 +75,7 @@ size_t strlen(const char *s);
  * @param src Source string
  * @return Pointer to dest
  */
-char *strcpy(char *dest, const char *src);
+char* strcpy(char* dest, const char* src);
 
 /**
  * Copy up to n characters from src to dest
@@ -85,7 +85,7 @@ char *strcpy(char *dest, const char *src);
  * @param n Maximum number of characters to copy
  * @return Pointer to dest
  */
-char *strncpy(char *dest, const char *src, size_t n);
+char* strncpy(char* dest, const char* src, size_t n);
 
 /**
  * Concatenate two strings
@@ -94,7 +94,7 @@ char *strncpy(char *dest, const char *src, size_t n);
  * @param src Source string to append
  * @return Pointer to dest
  */
-char *strcat(char *dest, const char *src);
+char* strcat(char* dest, const char* src);
 
 /**
  * Concatenate up to n characters from src to dest
@@ -104,7 +104,7 @@ char *strcat(char *dest, const char *src);
  * @param n Maximum number of characters to concatenate
  * @return Pointer to dest
  */
-char *strncat(char *dest, const char *src, size_t n);
+char* strncat(char* dest, const char* src, size_t n);
 
 /**
  * Compare two strings
@@ -113,7 +113,7 @@ char *strncat(char *dest, const char *src, size_t n);
  * @param s2 Second string
  * @return 0 if equal, <0 if s1 < s2, >0 if s1 > s2
  */
-int strcmp(const char *s1, const char *s2);
+int strcmp(const char* s1, const char* s2);
 
 /**
  * Compare up to n characters of two strings
@@ -123,7 +123,7 @@ int strcmp(const char *s1, const char *s2);
  * @param n Maximum number of characters to compare
  * @return 0 if equal, <0 if s1 < s2, >0 if s1 > s2
  */
-int strncmp(const char *s1, const char *s2, size_t n);
+int strncmp(const char* s1, const char* s2, size_t n);
 
 /**
  * Find the first occurrence of a character in a string
@@ -132,7 +132,7 @@ int strncmp(const char *s1, const char *s2, size_t n);
  * @param c Character to find
  * @return Pointer to first occurrence, or NULL if not found
  */
-char *strchr(const char *s, int c);
+char* strchr(const char* s, int c);
 
 /**
  * Find the last occurrence of a character in a string
@@ -141,7 +141,7 @@ char *strchr(const char *s, int c);
  * @param c Character to find
  * @return Pointer to last occurrence, or NULL if not found
  */
-char *strrchr(const char *s, int c);
+char* strrchr(const char* s, int c);
 
 /**
  * Reverse a string in place
@@ -149,7 +149,7 @@ char *strrchr(const char *s, int c);
  * @param s String to reverse
  * @return Pointer to the reversed string
  */
-char *strrev(char *s);
+char* strrev(char* s);
 
 /* ================================================================
  * Memory and string search functions
@@ -163,7 +163,7 @@ char *strrev(char *s);
  * @param n Size of the memory block
  * @return Pointer to the first occurrence, or NULL if not found
  */
-void *memchr(const void *s, int c, size_t n);
+void* memchr(const void* s, int c, size_t n);
 
 /* ================================================================
  * String to number conversion functions
@@ -175,7 +175,7 @@ void *memchr(const void *s, int c, size_t n);
  * @param s String to convert
  * @return Converted integer
  */
-int atoi(const char *s);
+int atoi(const char* s);
 
 /**
  * Convert a string to a long integer
@@ -185,7 +185,7 @@ int atoi(const char *s);
  * @param base Base to use for conversion (2-36, 0 for auto)
  * @return Converted long integer
  */
-long strtol(const char *s, char **endptr, int base);
+long strtol(const char* s, char** endptr, int base);
 
 /**
  * Convert a string to an unsigned long integer
@@ -195,7 +195,7 @@ long strtol(const char *s, char **endptr, int base);
  * @param base Base to use for conversion (2-36, 0 for auto)
  * @return Converted unsigned long integer
  */
-unsigned long strtoul(const char *s, char **endptr, int base);
+unsigned long strtoul(const char* s, char** endptr, int base);
 
 /**
  * String formatting functions
@@ -209,7 +209,7 @@ unsigned long strtoul(const char *s, char **endptr, int base);
  * @param ... Variable arguments
  * @return Number of characters written
  */
-int sprintf(char *buf, const char *format, ...);
+int sprintf(char* buf, const char* format, ...);
 
 /**
  * Format a string with size limit
@@ -220,7 +220,7 @@ int sprintf(char *buf, const char *format, ...);
  * @param ... Variable arguments
  * @return Number of characters written (excluding null terminator)
  */
-int snprintf(char *buf, size_t size, const char *format, ...);
+int snprintf(char* buf, size_t size, const char* format, ...);
 
 /* ================================================================
  * Character classification functions

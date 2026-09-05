@@ -107,11 +107,16 @@ check_long_mode:
 setup_page_tables:
     /* Clear page table memory (PML4, PDP, PD) */
     movl    $page_table_l4, %edi
-    movl    $3072, %ecx
+    movl    $4096, %ecx
     xorl    %eax, %eax
     rep; stosl
 
-    /* Set up PML4 (Page Map Level 4) entry 0 to point to PDP */
+	/* Set up PML4 entry 256 to PDPT */
+	movl	$page_table_l3, %eax
+	orl	$(PAGE_PRESENT | PAGE_WRITE), %eax
+	movl	%eax, page_table_l4 + 256*8
+
+	/* Set up PML4 (Page Map Level 4) entry 0 to point to PDP */
     movl    $page_table_l3, %eax
     orl     $(PAGE_PRESENT | PAGE_WRITE), %eax
     movl    %eax, page_table_l4
@@ -121,18 +126,23 @@ setup_page_tables:
     orl     $(PAGE_PRESENT | PAGE_WRITE), %eax
     movl    %eax, page_table_l3
 
-    /* Set up PD (Page Directory) with 2MB huge pages, mapping first 1GB */
-    movl    $(PAGE_PRESENT | PAGE_WRITE | PAGE_HUGE), %eax
-    movl    $page_table_l2, %edi
-    movl    $512, %ecx
+	/* Set up PD entry 0 to PT */
+	movl	$page_table_l1, %eax
+	orl	$(PAGE_PRESENT | PAGE WRITE), %eax
+	movl	%eax, page_table_l2
 
+	/* Fill PT: map 256 pages started 0x100000 and it is paddr to high vaddr */
+	movl	$page_table_l1, %edi
+	movl	$0x100000, %eax
+	orl	$(PAGE_PRESENT | PAGE_WRITE), %eax
+	movl	$256, %ecx
 1:
-    movl    %eax, (%edi)
-    addl    $0x200000, %eax
-    addl    $8, %edi
-    loop    1b
-    ret
+	movl	%eax, (%edi)
+	addl	$0x100000, %eax
+	addl	$8, %edi
+	loop	1b
 
+	ret
 /* ==================== Enable Paging ==================== */
 enable_paging:
     /* Enable PAE (Physical Address Extension) in CR4 */
@@ -169,7 +179,7 @@ long_mode_jump:
     movw    %ax, %ss
 
     /* Set up 64-bit stack */
-    movq    $0x70000, %rsp
+    movq    $0xffff800000000000 + 0x90000, %rsp
 
     /* Set up IDT pointer (must be done before any interrupts) */
     movq    $idt64_pointer, %rax
@@ -192,6 +202,8 @@ page_table_l3:
     .skip 4096
 page_table_l2:
     .skip 4096
+page_table_l1:
+	.skip 4096
 
 /* ==================== Simple IDT for 64-bit mode ==================== */
 /* Add minimal IDT to handle exceptions */
