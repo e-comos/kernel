@@ -12,8 +12,8 @@
 #include <user_space/user_mode.h>
 
 /* GDT segment selectors for user mode */
-#define USER_CODE_SELECTOR 0x23 /* index 3, DPL=3, 64-bit code */
-#define USER_DATA_SELECTOR 0x1B /* index 4, DPL=3, data         */
+#define USER_CODE_SELECTOR 0x23 /* index 4, DPL=3, 64-bit code */
+#define USER_DATA_SELECTOR 0x1B /* index 3, DPL=3, data         */
 
 extern uint64_t driver_phys_addr;
 extern uint64_t driver_size;
@@ -65,8 +65,8 @@ void __attribute__((noreturn)) switch_to_user_mode(uintptr_t entry_point,
 	print_str((user_rsp & 0xF) == 0 ? "yes" : "no", 0x0F);
 	print_str(")\n", 0x0F);
 
-	print_str("  CS: 0x1B (index 3, DPL=3)\n", 0x0F);
-	print_str("  SS: 0x23 (index 4, DPL=3)\n", 0x0F);
+	print_str("  CS: 0x23 (index 4, DPL=3)\n", 0x0F);
+	print_str("  SS: 0x1B (index 3, DPL=3)\n", 0x0F);
 
 	// Kernel page tables already have PTE_USER on all entries;
 	// no need to create a separate user CR3.

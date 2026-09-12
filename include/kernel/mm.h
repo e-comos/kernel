@@ -137,18 +137,18 @@ void mm_enable_paging(void);
 
 /*
  * mm_phys_to_virt — convert physical address to kernel virtual address.
- * In identity-mapped setup, this is a simple cast.
+ * Higher-half kernel: kernel virtual = KERNEL_BASE + physical_address
  */
 static inline void* mm_phys_to_virt(uintptr_t phys) {
-	return (void*)(phys);
+	return (void*)(KERNEL_BASE + phys);
 }
 
 /*
  * mm_virt_to_phys — convert kernel virtual address to physical address.
- * In identity-mapped setup, this is a simple cast.
+ * Higher-half kernel: physical = virtual - KERNEL_BASE
  */
 static inline uintptr_t mm_virt_to_phys(void* virt) {
-	return (uintptr_t)virt;
+	return (uintptr_t)virt - KERNEL_BASE;
 }
 
 /*
