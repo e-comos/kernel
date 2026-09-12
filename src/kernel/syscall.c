@@ -181,7 +181,9 @@ long syscall_handler(uint32_t num, uint32_t arg1, uint32_t arg2,
 	}
 	case SYS_IPC_RECEIVE: {
 		uintptr_t uaddr = (uintptr_t)arg1;
-		if (uaddr < 0x400000 || uaddr >= 0x800000) {
+		/* Treat addresses below 0x800000000000 as user-space. Reject
+		 * any address that is in the kernel/high-half region. */
+		if (uaddr >= 0x800000000000ULL) {
 			return -1;
 		}
 		__asm__ volatile("" : : "r"(arg1) : "memory");

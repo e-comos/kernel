@@ -25,6 +25,15 @@
 .global multiboot2_info_phys
 .global saved_multiboot_info
 
+/* ==================== Constants ==================== */
+.set KERNEL_VIRTUAL_BASE, 0xffff800000000000
+.set KERNEL_LOAD_ADDR, 0x100000
+.set SCRATCH_AREA_PHYS, 0x300000
+.set MULTIBOOT_HEADER_PHYS, KERNEL_LOAD_ADDR
+.set MULTIBOOT_ENTRY_PHYS, KERNEL_LOAD_ADDR
+.set SAVED_MULTIBOOT_INFO_PHYS, SCRATCH_AREA_PHYS
+.set MULTIBOOT_INFO_PHYS, SCRATCH_AREA_PHYS + 0x1000
+
 /* ==================== Multiboot2 Header ==================== */
 /* The Multiboot2 header must be in the first 32KB of the kernel file
  * and must be 64-bit aligned. GRUB will scan for this header. */
@@ -44,7 +53,7 @@ multiboot2_header_start:
     .word 2                    /* Type: Address tag */
     .word 0                    /* Flags */
     .long 24                   /* Size: 24 bytes */
-    .long multiboot2_header_start /* Header address (where GRUB loaded it) */
+    .long MULTIBOOT_HEADER_PHYS /* Header address (where GRUB loaded it) */
     .long 0x100000             /* Load address: kernel should be loaded at 1MB */
     .long 0                    /* Load end address: 0 = whole file */
     .long 0                    /* BSS end address: 0 = no BSS segment */
@@ -53,7 +62,7 @@ multiboot2_header_start:
     .word 3                    /* Type: Entry address */
     .word 0                    /* Flags */
     .long 12                   /* Size: 12 bytes */
-    .long _start               /* Entry point: our _start label below */
+    .long MULTIBOOT_ENTRY_PHYS /* Entry point: our _start label below */
     
     /* End tag */
     .align 8
@@ -94,12 +103,12 @@ _start:
     jg .hang                         /* Hang if it exceeds buffer limits */
 
     movl %ebx, %esi                  /* Source: physical address from GRUB */
-    movl $saved_multiboot_info, %edi /* Destination: safe kernel buffer */
+    movl $SAVED_MULTIBOOT_INFO_PHYS, %edi /* Destination: safe kernel buffer */
     cld
     rep movsb                        /* Copy %ecx bytes safely */
 
     /* Point multiboot2_info_phys to our safe copy instead of fragile low memory */
-    movl $saved_multiboot_info, multiboot2_info_phys
+    movl $SAVED_MULTIBOOT_INFO_PHYS, MULTIBOOT_INFO_PHYS
 
     /* ------------------------------------------------------------
      * 3. Set up a minimal stack for 32-bit mode
@@ -128,7 +137,7 @@ _start:
      * 6. Call the 32-to-64-bit mode switcher
      *    This routine (in long_mode_switch.s) will:
      *    a. Check CPU support for long mode
-     *    b. Set up identity page tables
+     *    b. Set up low-address and high-half page tables
      *    c. Enable PAE, paging, and long mode
      *    d. Load a 64-bit GDT
      *    e. Far-jump to 64-bit code

@@ -45,7 +45,7 @@ extern void isr14(void); /* Page fault handler from isr.s */
 #define KERNEL_RESERVED_PAGES_FALLBACK 64u /* 256 KB conservative bound */
 
 /* Kernel heap constants */
-#define HEAP_START_VIRT 0x2000000u /* 32 MB - start of kernel heap */
+#define HEAP_START_VIRT (KERNEL_BASE + 0x2000000ULL) /* High-half kernel heap */
 #define HEAP_INITIAL_PAGES 16u	   /* Initial 64KB heap */
 #define HEAP_BLOCK_SIZE 16u		   /* Minimum allocation size */
 #define HEAP_ALIGNMENT 16u
@@ -71,7 +71,7 @@ static uintptr_t heap_current = 0;
 static uintptr_t heap_end = 0;
 
 /* ------------------------------------------------------------------ */
-/* 64-bit page table structures (4-level paging, identity map)        */
+/* 64-bit page table structures (4-level paging, higher-half + low map) */
 /* ------------------------------------------------------------------ */
 #define PT_ENTRIES 512u /* 64-bit PT has 512 × 8-byte entries        */
 #define PD_ENTRIES 512u
@@ -236,7 +236,7 @@ static void heap_merge_blocks(void) {
 }
 
 /* ------------------------------------------------------------------ */
-/* 64-bit identity page table setup                                   */
+/* 64-bit page table setup for higher-half + low-address mapping        */
 /* ------------------------------------------------------------------ */
 static void build_page_tables(void) {
 	/* Clear page tables */
@@ -252,39 +252,38 @@ static void build_page_tables(void) {
 		}
 	}
 
-	/* PML4[256] -> pdpt */
-	pml4[256] = (uint64_t)(uintptr_t)pdpt | PTE_PRESENT | PTE_WRITEABLE | PTE_USER;
+	/* PML4[0] keeps the low-address compatibility alias; PML4[256] is the
+	 * higher-half kernel mapping. Intermediate page-table entries must remain
+	 * kernel-owned and should not carry the USER bit.
+	 */
+	pml4[0] = (uint64_t)(uintptr_t)pdpt | PTE_PRESENT | PTE_WRITABLE;
+	pml4[256] = (uint64_t)(uintptr_t)pdpt | PTE_PRESENT | PTE_WRITABLE;
 
-	/* PML4[0] → pdpt */
-	pml4[0] = (uint64_t)(uintptr_t)pdpt | PTE_PRESENT | PTE_WRITABLE | PTE_USER;
+	/* PDPT[0] -> pd; intermediate tables are not user-accessible. */
+	pdpt[0] = (uint64_t)(uintptr_t)pd | PTE_PRESENT | PTE_WRITABLE;
 
-	/* PDPT[0] → pd */
-	pdpt[0] = (uint64_t)(uintptr_t)pd | PTE_PRESENT | PTE_WRITABLE | PTE_USER;
-	
-	/* PD[i] → pt[i]  (each covers 2 MB) */
-	/* Initialize all PD entries: PD[0..7] point to PTs, others are 0 */
-	for (uint32_t i = 0; i < NUM_PTS; i++) {
-		pd[i] =
-			(uint64_t)(uintptr_t)pt[i] | PTE_PRESENT | PTE_WRITABLE | PTE_USER;
+	/* PD[0] -> pt[0]; intermediate tables are not user-accessible. */
+	pd[0] = (uint64_t)(uintptr_t)pt[0] | PTE_PRESENT | PTE_WRITABLE;
 
-		/* Fill PT: identity-map 512 × 4 KB pages (0-16MB) */
-		for (uint32_t j = 0; j < PT_ENTRIES; j++) {
-			uint64_t phys =
-				(uint64_t)i * PT_ENTRIES * PAGE_SIZE + (uint64_t)j * PAGE_SIZE;
-			uint64_t flags = PTE_PRESENT | PTE_WRITABLE | PTE_USER;
+	/* Fill pt[0] with the first 1 MB of physical memory as a true identity
+	 * alias in the low window and as the kernel high-half alias in the upper
+	 * window. The low mapping must keep 0x100000 == 0x100000, while the kernel
+	 * runs at KERNEL_BASE + 0x100000.
+	 */
+	for (uint32_t j = 0; j < PT_ENTRIES; j++)
+		pt[0][j] = 0;
 
-			/* Make kernel pages global */
-			if (phys >= 0x200000) {
-				flags |= PTE_GLOBAL;
-			}
+	for (uint32_t j = 0x100; j < 0x200; j++) {
+		uint64_t phys = PHYS_BASE + (uint64_t)(j - 0x100) * PAGE_SIZE;
+		uint64_t flags = PTE_PRESENT | PTE_WRITABLE;
+		pt[0][j] = phys | flags;
+	}
 
-			/* MODIFIED: Do not map user space so demand paging triggers! */
-			if (phys >= 0x400000) {
-				flags &= ~PTE_PRESENT;
-			}
-
-			pt[i][j] = phys | flags;
-		}
+	/* Initialize remaining PD entries to point to their PTs. */
+	for (uint32_t i = 1; i < NUM_PTS; i++) {
+		pd[i] = (uint64_t)(uintptr_t)pt[i] | PTE_PRESENT | PTE_WRITABLE;
+		for (uint32_t j = 0; j < PT_ENTRIES; j++)
+			pt[i][j] = 0;
 	}
 
 	page_tables_ready = 1;
@@ -451,9 +450,9 @@ find_first:
 	print_str("  first free: ", 0x0A);
 	print_num(next_free_page, 0x0A);
 	print_str("  heap: 0x", 0x0A);
-	print_hex(HEAP_START_VIRT, 0x0A);
+	print_hex64(HEAP_START_VIRT, 0x0A);
 	print_str("-0x", 0x0A);
-	print_hex(heap_end, 0x0A);
+	print_hex64(heap_end, 0x0A);
 	print_str("\n", 0x0A);
 
 	if (free_count == 0)
@@ -467,7 +466,7 @@ find_first:
 	uint64_t handler_addr = (uint64_t)(uintptr_t)isr14;
 	idt_set_gate(14, handler_addr, 0x08, 0x8E); /* Gate 14 = Page Fault */
 	print_str("  Page fault handler registered at 0x", 0x0A);
-	print_hex(handler_addr, 0x0A);
+	print_hex64(handler_addr, 0x0A);
 	print_str("\n", 0x0A);
 
 	/* Pre-map BOOT_INFO_ADDR (0x600000) for early use */
@@ -587,8 +586,8 @@ int mm_map_page(uint64_t vaddr, uint64_t paddr, uint64_t flags) {
 		print_str("MM: paddr not aligned\n", 0x0C);
 		return -1;
 	}
-	if (!((vaddr >= 0x400000 && vaddr < 0x900000) || 
-				(vaddr >= KERNEL_BASE && vaddr < KERNEL_BASE + KERNEL_SIZE))) {
+	if (!((vaddr >= 0x400000 && vaddr < 0x900000) ||
+				(vaddr >= KERNEL_BASE && vaddr <= KERNEL_BASE + KERNEL_SIZE))) {
 		print_str("MM: vaddr out of range\n", 0x0C);
 		return -1;
 	}
@@ -615,7 +614,7 @@ int mm_map_page(uint64_t vaddr, uint64_t paddr, uint64_t flags) {
 		for (uint32_t i = 0; i < PT_ENTRIES; i++)
 			tbl[i] = 0;
 		cur[pml4_idx] = (uint64_t)(uintptr_t)new_table | PTE_PRESENT |
-						PTE_WRITABLE | PTE_USER;
+						PTE_WRITABLE;
 		print_str("MM: allocated PML4 entry table at 0x", 0x0A);
 		print_hex((uintptr_t)new_table, 0x0A);
 		print_str("\n", 0x0A);
@@ -633,7 +632,7 @@ int mm_map_page(uint64_t vaddr, uint64_t paddr, uint64_t flags) {
 		for (uint32_t i = 0; i < PT_ENTRIES; i++)
 			tbl[i] = 0;
 		pdp[pdp_idx] = (uint64_t)(uintptr_t)new_table | PTE_PRESENT |
-					   PTE_WRITABLE | PTE_USER;
+					   PTE_WRITABLE;
 		print_str("MM: allocated PDPT entry table at 0x", 0x0A);
 		print_hex((uintptr_t)new_table, 0x0A);
 		print_str("\n", 0x0A);
@@ -651,7 +650,7 @@ int mm_map_page(uint64_t vaddr, uint64_t paddr, uint64_t flags) {
 		for (uint32_t i = 0; i < PT_ENTRIES; i++)
 			tbl[i] = 0;
 		pd[pd_idx] = (uint64_t)(uintptr_t)new_table | PTE_PRESENT |
-					 PTE_WRITABLE | PTE_USER;
+					 PTE_WRITABLE;
 		print_str("MM: allocated PD entry table at 0x", 0x0A);
 		print_hex((uintptr_t)new_table, 0x0A);
 		print_str("\n", 0x0A);
@@ -724,8 +723,13 @@ void mm_enable_paging(void) {
 	if (!page_tables_ready)
 		mm_panic("mm_enable_paging called before page tables are built");
 
-	/* Write PML4 to CR3 */
-	__asm__ volatile("movq %0, %%cr3" : : "r"((uintptr_t)pml4) : "memory");
+	/* CR3 must contain the physical address of the page root, not the linked
+	 * higher-half virtual address of the page tables.
+	 */
+	__asm__ volatile("movq %0, %%cr3"
+				 :
+				 : "r"((uintptr_t)mm_virt_to_phys(pml4))
+				 : "memory");
 
 	/* Enable PAE (should already be enabled in long mode setup) */
 	uint64_t cr4;
@@ -750,7 +754,7 @@ void mm_enable_paging(void) {
 
 	/* Add debug information after enabling paging */
 	print_str("MM: paging enabled, CR3=0x", 0x0A);
-	print_hex((uintptr_t)pml4, 0x0A);
+	print_hex64((uintptr_t)pml4, 0x0A);
 	print_str("\n", 0x0A);
 
 	/* Check user program page mapping */
@@ -839,14 +843,14 @@ void kfree(void* ptr) {
 	uintptr_t addr = (uintptr_t)block;
 	if (addr < HEAP_START_VIRT || addr >= heap_end) {
 		print_str("kfree: invalid pointer 0x", 0x0C);
-		print_hex(addr, 0x0C);
+		print_hex64(addr, 0x0C);
 		print_str("\n", 0x0C);
 		return;
 	}
 
 	if (block->free) {
 		print_str("kfree: double free at 0x", 0x0C);
-		print_hex(addr, 0x0C);
+		print_hex64(addr, 0x0C);
 		print_str("\n", 0x0C);
 		return;
 	}
@@ -998,9 +1002,9 @@ void mm_dump_stats(void) {
 	print_str(" KB)\n", 0x0E);
 
 	print_str("  Heap:         0x", 0x0E);
-	print_hex(HEAP_START_VIRT, 0x0E);
+	print_hex64(HEAP_START_VIRT, 0x0E);
 	print_str(" - 0x", 0x0E);
-	print_hex(heap_end, 0x0E);
+	print_hex64(heap_end, 0x0E);
 	print_str(" (", 0x0E);
 	print_num((heap_end - HEAP_START_VIRT) / 1024, 0x0E);
 	print_str(" KB)\n", 0x0E);
@@ -1016,7 +1020,7 @@ void mm_check_page(uint64_t vaddr) {
 	uint64_t pt_idx = (vaddr >> 12) & 0x1FF;
 
 	print_str("MM: Page 0x", 0x0E);
-	print_hex(vaddr, 0x0E);
+	print_hex64(vaddr, 0x0E);
 	print_str(" (PML4[", 0x0E);
 	print_num(pml4_idx, 0x0E);
 	print_str("] PDPT[", 0x0E);
@@ -1091,6 +1095,18 @@ int handle_page_fault(uint64_t fault_addr, uint64_t error_code) {
 	/* Calculate the 4KB aligned page boundary */
 	uint64_t page_start = fault_addr & ~0xFFFULL;
 
+	/* Kernel high-half page fault: fatal. Treat the entire mapped kernel window,
+	 * including the upper boundary, as non-user space.
+	 */
+	if (fault_addr >= KERNEL_BASE && fault_addr <= KERNEL_BASE + KERNEL_SIZE) {
+		print_str("MM: Kernel page fault at virtual address 0x", 0x0C);
+		print_hex64(fault_addr, 0x0C);
+		print_str(" (error code: ", 0x0C);
+		print_num(error_code, 0x0C);
+		print_str(")\n", 0x0C);
+		mm_panic("Kernel page fault");
+	}
+
 	/* Verify that the faulting address is within the valid user-space region */
 	if (fault_addr >= 0x400000 && fault_addr < 0x800000) {
 
@@ -1152,7 +1168,7 @@ int handle_page_fault(uint64_t fault_addr, uint64_t error_code) {
 						MM_FLAG_USER | MM_FLAG_WRITE) != 0) {
 			mm_free_page(page);
 			print_str("MM: Failed to map page fault address 0x", 0x0C);
-			print_hex(page_start, 0x0C);
+			print_hex64(page_start, 0x0C);
 			print_str("\n", 0x0C);
 			return 0; /* Return 0 for failure */
 		}
@@ -1165,7 +1181,7 @@ int handle_page_fault(uint64_t fault_addr, uint64_t error_code) {
 
 	/* Unhandled or out-of-bounds fault */
 	print_str("MM: Unhandled page fault at virtual address 0x", 0x0C);
-	print_hex(fault_addr, 0x0C);
+	print_hex64(fault_addr, 0x0C);
 	print_str(" (error code: ", 0x0C);
 	print_num(error_code, 0x0C);
 	print_str(")\n", 0x0C);

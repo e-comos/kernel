@@ -32,8 +32,8 @@
 /* GDT selectors for SYSCALL/SYSRET (based on our GDT layout)
  * Index 1 (0x08): Kernel code segment
  * Index 2 (0x10): Kernel data segment
- * Index 3 (0x18): User code segment (with RPL=3 becomes 0x1B)
- * Index 4 (0x20): User data segment (with RPL=3 becomes 0x23)
+ * Index 3 (0x18): User data segment (with RPL=3 becomes 0x1B)
+ * Index 4 (0x20): User code segment (with RPL=3 becomes 0x23)
  */
 #define KERNEL_CS 0x08 /* Kernel code segment (ring 0) */
 #define USER_CS 0x23   /* User code segment (ring 3 when RPL=3) */
@@ -95,14 +95,13 @@ void enable_syscall_mechanism(void) {
 	print_hex((uint32_t)(efer_value >> 32), 0x0A);
 	print_str(")\n", 0x0A);
 
-	/* Step 2: Configure STAR register
-	 * Bits 63:48: Selector for user code segment (with RPL forced to 3)
-	 * Bits 47:32: Selector for kernel code segment (with RPL forced to 0)
-	 * Our layout: USER_CS=0x1B, KERNEL_CS=0x08
-	 * So STAR = (USER_CS << 16) | (KERNEL_CS << 32) = (0x1B << 16) | (0x08 <<
-	 * 32)
+	/* Step 2: Configure STAR register.
+	 * Bits 63:48: user CS selector with RPL=3.
+	 * Bits 47:32: kernel CS selector with RPL=0.
+	 * Our layout: USER_CS=0x23, KERNEL_CS=0x08.
 	 */
-	uint64_t star_value = ((uint64_t)0x10 << 48) | ((uint64_t)KERNEL_CS << 32);
+	uint64_t star_value = ((uint64_t)USER_CS << 48) |
+					 ((uint64_t)KERNEL_CS << 32);
 	write_msr(MSR_STAR, star_value);
 
 	print_str("  STAR configured (0x", 0x0A);

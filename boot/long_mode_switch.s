@@ -20,11 +20,21 @@
 .set PAGE_PRESENT,   0x01       /* Page present in memory */
 .set PAGE_WRITE,     0x02       /* Page is writable */
 .set PAGE_HUGE,      0x80       /* 2MB page (huge page) */
+.set KERNEL_HIGH_BASE, 0xffff800000000000
+.set KERNEL_KERNEL_VIRT, 0xffff800000100000
 
 .set CR0_PG,         0x80000000 /* CR0: Paging enable bit (bit 31) */
 .set CR4_PAE,        0x20       /* CR4: PAE enable bit (bit 5) */
 .set EFER_MSR,       0xC0000080 /* EFER Model Specific Register number */
 .set EFER_LME,       0x100      /* EFER: Long Mode Enable (bit 8) */
+
+/* Use physical addresses for the early 32-bit setup phase. These are not
+ * high-half virtual addresses; they are valid runtime physical locations before
+ * the high-half mapping is enabled. */
+.set PAGE_TABLE_L4_PHYS, 0x200000
+.set PAGE_TABLE_L3_PHYS, 0x201000
+.set PAGE_TABLE_L2_PHYS, 0x202000
+.set PAGE_TABLE_L1_PHYS, 0x203000
 
 /* ==================== Switch Function ==================== */
 switch_to_long_mode:
@@ -39,17 +49,22 @@ switch_to_long_mode:
     jz      .no_long_mode_error
 
     movl    %ebx, %esi
-    /* Set up identity page tables */
+    /* Set up low-address identity mapping and high-half kernel mapping */
     call    setup_page_tables
 
     /* Enable PAE, paging, and long mode */
     call    enable_paging
 
-    /* Load the 64-bit Global Descriptor Table */
-    lgdt    gdt64_pointer
+    /* The GDT table is mapped at a low physical address derived from the linked
+     * high-half virtual symbol. This is valid only after the page tables above
+     * have already been established and enabled. */
+    lgdt    gdt64_pointer - KERNEL_HIGH_BASE + 0x100000
 
-    /* Far jump to 64-bit code segment (0x08 is code selector in GDT) */
-    ljmp    $0x08, $long_mode_jump
+    /* Jump to the high-half 64-bit entry point after the paging and long-mode
+     * bits are enabled. */
+    .byte   0x48, 0xEA
+    .quad   long_mode_jump
+    .word   0x08
 
     /* Should not reach here */
     jmp     .hang
@@ -105,44 +120,60 @@ check_long_mode:
 
 /* ==================== Set Up Page Tables ==================== */
 setup_page_tables:
-    /* Clear page table memory (PML4, PDP, PD) */
-    movl    $page_table_l4, %edi
+    /* Clear the four page-table pages in one pass.
+     * Each page is 4096 bytes and stosl writes 4 bytes per iteration,
+     * so 4096 iterations clears exactly 4 * 4096 bytes.
+     */
+    movl    $PAGE_TABLE_L4_PHYS, %edi
     movl    $4096, %ecx
     xorl    %eax, %eax
     rep; stosl
 
-	/* Set up PML4 entry 256 to PDPT */
-	movl	$page_table_l3, %eax
-	orl	$(PAGE_PRESENT | PAGE_WRITE), %eax
-	movl	%eax, page_table_l4 + 256*8
+    /* Set up PML4[0] -> PDPT (low, identity alias) */
+    movl    $PAGE_TABLE_L3_PHYS, %eax
+    orl     $(PAGE_PRESENT + PAGE_WRITE), %eax
+    /* Write full 8-byte PML4 entry (low dword then high dword) */
+    movl    %eax, PAGE_TABLE_L4_PHYS
+    movl    $0x0, PAGE_TABLE_L4_PHYS + 4
 
-	/* Set up PML4 (Page Map Level 4) entry 0 to point to PDP */
-    movl    $page_table_l3, %eax
-    orl     $(PAGE_PRESENT | PAGE_WRITE), %eax
-    movl    %eax, page_table_l4
+    /* Set up PML4[256] -> PDPT (high-half kernel mapping) */
+    movl    %eax, PAGE_TABLE_L4_PHYS + 256*8
+    movl    $0x0, PAGE_TABLE_L4_PHYS + 256*8 + 4
 
-    /* Set up PDP (Page Directory Pointer) entry 0 to point to PD */
-    movl    $page_table_l2, %eax
-    orl     $(PAGE_PRESENT | PAGE_WRITE), %eax
-    movl    %eax, page_table_l3
+    /* Set up PDPT[0] -> PD */
+    movl    $PAGE_TABLE_L2_PHYS, %eax
+    orl     $(PAGE_PRESENT + PAGE_WRITE), %eax
+    movl    %eax, PAGE_TABLE_L3_PHYS
+    movl    $0x0, PAGE_TABLE_L3_PHYS + 4
 
-	/* Set up PD entry 0 to PT */
-	movl	$page_table_l1, %eax
-	orl	$(PAGE_PRESENT | PAGE WRITE), %eax
-	movl	%eax, page_table_l2
+    /* Set up PD[0] -> PT */
+    movl    $PAGE_TABLE_L1_PHYS, %eax
+    orl     $(PAGE_PRESENT + PAGE_WRITE), %eax
+    movl    %eax, PAGE_TABLE_L2_PHYS
+    movl    $0x0, PAGE_TABLE_L2_PHYS + 4
 
-	/* Fill PT: map 256 pages started 0x100000 and it is paddr to high vaddr */
-	movl	$page_table_l1, %edi
-	movl	$0x100000, %eax
-	orl	$(PAGE_PRESENT | PAGE_WRITE), %eax
-	movl	$256, %ecx
+    /* Fill PT entries 256..511 with the low identity mapping for
+     * virtual 0x100000..0x1fffff and the matching high-half alias.
+     * This gives: low vaddr == phys at 1MB and high vaddr = KERNEL_BASE + phys.
+     * 64-bit PTEs must be written as 8-byte values even though the code runs
+     * in 32-bit mode during the early page-table setup phase.
+     */
+    movl    $PAGE_TABLE_L1_PHYS, %edi
+    /* Start writing at PT index 256 (offset 256*8 = 2048) */
+    addl    $2048, %edi
+    movl    $0x100000, %eax
+    movl    $256, %ecx
 1:
-	movl	%eax, (%edi)
-	addl	$0x100000, %eax
-	addl	$8, %edi
-	loop	1b
+    movl    %eax, %ebx
+    xorl    %edx, %edx
+    orl     $(PAGE_PRESENT + PAGE_WRITE), %ebx
+    movl    %ebx, (%edi)
+    movl    %edx, 4(%edi)
+    addl    $0x1000, %eax
+    addl    $8, %edi
+    loop    1b
 
-	ret
+    ret
 /* ==================== Enable Paging ==================== */
 enable_paging:
     /* Enable PAE (Physical Address Extension) in CR4 */
@@ -151,7 +182,7 @@ enable_paging:
     movl    %eax, %cr4
 
     /* Load CR3 with the physical address of the PML4 */
-    movl    $page_table_l4, %eax
+    movl    $PAGE_TABLE_L4_PHYS, %eax
     movl    %eax, %cr3
 
     /* Enable Long Mode by setting the EFER.LME bit */
@@ -178,11 +209,15 @@ long_mode_jump:
     movw    %ax, %gs
     movw    %ax, %ss
 
-    /* Set up 64-bit stack */
-    movq    $0xffff800000000000 + 0x90000, %rsp
+    /* Set up a valid 64-bit kernel stack above the loaded image.
+     * The stack must live inside the mapped high-half window; placing it at
+     * KERNEL_HIGH_BASE + 0x90000 would not be backed by the early page tables
+     * because the kernel image itself begins at KERNEL_HIGH_BASE + 0x100000.
+     */
+    movq    $KERNEL_HIGH_BASE + 0x100000 + 0x90000, %rsp
 
     /* Set up IDT pointer (must be done before any interrupts) */
-    movq    $idt64_pointer, %rax
+    leaq    idt64_pointer(%rip), %rax
     lidt    (%rax)
 
     /* Call the 64-bit C kernel entry point */

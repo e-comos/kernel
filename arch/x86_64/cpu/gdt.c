@@ -18,10 +18,10 @@
 #include "../internal/gdt.h" /* Use the user's unmodified header */
 #include <stdint.h>
 
-#define GDT_USER_CODE_INDEX 3
-#define GDT_USER_DATA_INDEX 4
-#define USER_CS_SELECTOR ((GDT_USER_CODE_INDEX << 3) | 0x03) // 0x1B
-#define USER_DS_SELECTOR ((GDT_USER_DATA_INDEX << 3) | 0x03)
+#define GDT_USER_DATA_INDEX 3
+#define GDT_USER_CODE_INDEX 4
+#define USER_CS_SELECTOR ((GDT_USER_CODE_INDEX << 3) | 0x03) // 0x23
+#define USER_DS_SELECTOR ((GDT_USER_DATA_INDEX << 3) | 0x03) // 0x1B
 
 /* ------------------------------------------------------------------ */
 /* GDTR (10 bytes for 64-bit mode)                                    */
