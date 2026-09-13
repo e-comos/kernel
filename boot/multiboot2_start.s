@@ -30,7 +30,7 @@
 .set KERNEL_LOAD_ADDR, 0x100000
 .set SCRATCH_AREA_PHYS, 0x300000
 .set MULTIBOOT_HEADER_PHYS, KERNEL_LOAD_ADDR
-.set MULTIBOOT_ENTRY_PHYS, KERNEL_LOAD_ADDR
+.set MULTIBOOT_ENTRY_PHYS, KERNEL_LOAD_ADDR + (multiboot2_header_end - multiboot2_header_start)
 .set SAVED_MULTIBOOT_INFO_PHYS, SCRATCH_AREA_PHYS
 .set MULTIBOOT_INFO_PHYS, SCRATCH_AREA_PHYS + 0x1000
 
@@ -62,7 +62,7 @@ multiboot2_header_start:
     .word 3                    /* Type: Entry address */
     .word 0                    /* Flags */
     .long 12                   /* Size: 12 bytes */
-    .long MULTIBOOT_ENTRY_PHYS /* Entry point: our _start label below */
+    .long KERNEL_LOAD_ADDR + (multiboot2_header_end - multiboot2_header_start) /* Entry point: _start after the header */
     
     /* End tag */
     .align 8
@@ -107,8 +107,10 @@ _start:
     cld
     rep movsb                        /* Copy %ecx bytes safely */
 
-    /* Point multiboot2_info_phys to our safe copy instead of fragile low memory */
-    movl $SAVED_MULTIBOOT_INFO_PHYS, MULTIBOOT_INFO_PHYS
+    /* Do not touch the high-half .bss variable before paging is active.
+     * The copied Multiboot2 pointer remains in the low scratch region until the
+     * 64-bit runtime has mapped the high-half data area.
+     */
 
     /* ------------------------------------------------------------
      * 3. Set up a minimal stack for 32-bit mode

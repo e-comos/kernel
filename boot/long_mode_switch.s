@@ -35,6 +35,7 @@
 .set PAGE_TABLE_L3_PHYS, 0x201000
 .set PAGE_TABLE_L2_PHYS, 0x202000
 .set PAGE_TABLE_L1_PHYS, 0x203000
+.set SAVED_MULTIBOOT_INFO_PHYS, 0x300000
 
 /* ==================== Switch Function ==================== */
 switch_to_long_mode:
@@ -55,13 +56,38 @@ switch_to_long_mode:
     /* Enable PAE, paging, and long mode */
     call    enable_paging
 
-    /* The GDT table is mapped at a low physical address derived from the linked
-     * high-half virtual symbol. This is valid only after the page tables above
-     * have already been established and enabled. */
-    lgdt    gdt64_pointer - KERNEL_HIGH_BASE + 0x100000
+    /* Mask PIC to prevent IRQs during mode switch */
+    movb    $0xff, %al
+    outb    %al, $0x21
+    outb    %al, $0xa1
 
-    /* Jump to the high-half 64-bit entry point after the paging and long-mode
-     * bits are enabled. */
+    /* Build a temporary GDT in low identity-mapped physical memory so that
+     * LGDT can be executed safely in 32-bit protected mode without relying on
+     * high-half linked virtual symbols. We place the GDT at PAGE_TABLE_L4_PHYS + 0x800.
+     */
+    movl    $PAGE_TABLE_L4_PHYS, %edi
+    addl    $0x800, %edi
+    /* Null descriptor */
+    movl    $0x0, (%edi)
+    movl    $0x0, 4(%edi)
+    /* Code descriptor (low dword then high dword) */
+    movl    $0x0, 8(%edi)
+    movl    $0x00209A00, 12(%edi)
+    /* Data descriptor */
+    movl    $0x0, 16(%edi)
+    movl    $0x00009200, 20(%edi)
+
+    /* Build GDTR (2-byte limit, 4-byte base) at PAGE_TABLE_L4_PHYS + 0x820.
+     * Use the same addressing style already used in this file for memory
+     * constants so operands are identity-accessible in 32-bit mode.
+     */
+    movw    $0x17, PAGE_TABLE_L4_PHYS + 0x820
+    movl    $PAGE_TABLE_L4_PHYS + 0x800, PAGE_TABLE_L4_PHYS + 0x822
+
+    /* Load the GDTR from identity-mapped low memory */
+    lgdt    PAGE_TABLE_L4_PHYS + 0x820
+
+    /* Jump to the high-half 64-bit entry point after paging and long mode are enabled */
     .byte   0x48, 0xEA
     .quad   long_mode_jump
     .word   0x08
@@ -215,6 +241,9 @@ long_mode_jump:
      * because the kernel image itself begins at KERNEL_HIGH_BASE + 0x100000.
      */
     movq    $KERNEL_HIGH_BASE + 0x100000 + 0x90000, %rsp
+
+    /* Set the runtime Multiboot2 pointer now that the high-half .bss is valid */
+    movl    $SAVED_MULTIBOOT_INFO_PHYS, multiboot2_info_phys(%rip)
 
     /* Set up IDT pointer (must be done before any interrupts) */
     leaq    idt64_pointer(%rip), %rax
