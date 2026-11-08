@@ -1,6 +1,6 @@
 /*
 	E-comOS Kernel - Service Registry
-	Copyright (C) 2025,2026  Saladin5101
+	Copyright (C) 2025,2026	 Saladin5101
 */
 
 #ifndef KERNEL_SERVICE_H

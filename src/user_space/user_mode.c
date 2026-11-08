@@ -13,7 +13,7 @@
 
 /* GDT segment selectors for user mode */
 #define USER_CODE_SELECTOR 0x23 /* index 4, DPL=3, 64-bit code */
-#define USER_DATA_SELECTOR 0x1B /* index 3, DPL=3, data         */
+#define USER_DATA_SELECTOR 0x1B /* index 3, DPL=3, data			*/
 
 extern uint64_t driver_phys_addr;
 extern uint64_t driver_size;
@@ -24,7 +24,7 @@ extern uint8_t _binary_payload_ebts_bin_start[];
 extern uint8_t _binary_payload_ebts_bin_end[];
 
 /* --------------------------------------------------------------- */
-/* create_user_pagetable                                           */
+/* create_user_pagetable										   */
 /* --------------------------------------------------------------- */
 uintptr_t create_user_pagetable(void) {
 	// Allocate new P4 table for user
@@ -44,7 +44,7 @@ uintptr_t create_user_pagetable(void) {
 }
 
 /* --------------------------------------------------------------- */
-/* switch_to_user_mode                                             */
+/* switch_to_user_mode											   */
 /* --------------------------------------------------------------- */
 void __attribute__((noreturn)) switch_to_user_mode(uintptr_t entry_point,
 												   uintptr_t stack_pointer) {
@@ -57,7 +57,7 @@ void __attribute__((noreturn)) switch_to_user_mode(uintptr_t entry_point,
 	}
 
 	print_str("Switching to user mode...\n", 0x0F);
-	print_str("  RIP: 0x", 0x0F);
+	print_str("	 RIP: 0x", 0x0F);
 	print_hex(user_rip, 0x0F);
 	print_str("\n  RSP: 0x", 0x0F);
 	print_hex(user_rsp, 0x0F);
@@ -65,8 +65,8 @@ void __attribute__((noreturn)) switch_to_user_mode(uintptr_t entry_point,
 	print_str((user_rsp & 0xF) == 0 ? "yes" : "no", 0x0F);
 	print_str(")\n", 0x0F);
 
-	print_str("  CS: 0x23 (index 4, DPL=3)\n", 0x0F);
-	print_str("  SS: 0x1B (index 3, DPL=3)\n", 0x0F);
+	print_str("	 CS: 0x23 (index 4, DPL=3)\n", 0x0F);
+	print_str("	 SS: 0x1B (index 3, DPL=3)\n", 0x0F);
 
 	// Kernel page tables already have PTE_USER on all entries;
 	// no need to create a separate user CR3.
@@ -80,7 +80,7 @@ void __attribute__((noreturn)) switch_to_user_mode(uintptr_t entry_point,
 }
 
 /* --------------------------------------------------------------- */
-/* load_init_service_to_user_mode                                  */
+/* load_init_service_to_user_mode								   */
 /* --------------------------------------------------------------- */
 int load_init_service_to_user_mode(void) {
 	print_str("Loading init-service to user mode...\n", 0x0F);
@@ -114,7 +114,7 @@ int load_init_service_to_user_mode(void) {
 	for (uint64_t i = 0; i < init_size; i++)
 		init_dst[i] = init_src[i];
 
-	print_str("  init.bin: ", 0x0F);
+	print_str("	 init.bin: ", 0x0F);
 	print_num((uint32_t)init_size, 0x0F);
 	print_str(" bytes -> 0x400000\n", 0x0F);
 
@@ -136,7 +136,7 @@ int load_init_service_to_user_mode(void) {
 		uint8_t* ebts_dst = (uint8_t*)EBTS_LOAD_ADDR;
 		for (uint64_t i = 0; i < ebts_size; i++)
 			ebts_dst[i] = ebts_src[i];
-		print_str("  ebts.bin: ", 0x0F);
+		print_str("	 ebts.bin: ", 0x0F);
 		print_num((uint32_t)ebts_size, 0x0F);
 		print_str(" bytes -> 0x500000\n", 0x0F);
 	}
@@ -150,7 +150,7 @@ int load_init_service_to_user_mode(void) {
 		if (mm_map_page(stack_va, (uint32_t)stack_pa, MM_FLAG_USER_RW) != 0) {
 			kernel_panic("Failed to map user stack");
 		}
-		print_str("  Stack mapped at 0x", 0x0F);
+		print_str("	 Stack mapped at 0x", 0x0F);
 		print_hex(stack_va, 0x0F);
 		print_str(" -> 0x", 0x0F);
 		print_hex(stack_pa, 0x0F);
@@ -166,7 +166,7 @@ int load_init_service_to_user_mode(void) {
 	boot[4] = 0;									// flags
 	boot[5] = 0;									// _pad
 
-	print_str("  boot_info written: ebts_src=0x", 0x0F);
+	print_str("	 boot_info written: ebts_src=0x", 0x0F);
 	print_hex(boot[0], 0x0F);
 	print_str(" ebts_size=0x", 0x0F);
 	print_hex(boot[1], 0x0F);
@@ -180,7 +180,8 @@ int load_init_service_to_user_mode(void) {
 	print_str("Entering user mode (this is the last kernel message)...\n",
 			  0x0F);
 	__asm__ volatile("cli");
-	switch_to_user_mode(INIT_LOAD_ADDR, 0x80000ULL);
+	/* 0x700000 is the exclusive top of the mapped 0x6FF000 stack page. */
+	switch_to_user_mode(INIT_LOAD_ADDR, 0x700000ULL);
 
 	return -1;
 }

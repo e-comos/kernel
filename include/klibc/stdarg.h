@@ -9,7 +9,7 @@
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.	 See the GNU
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public
@@ -33,10 +33,10 @@ typedef __builtin_va_list va_list;
 #define _VA_ALIGNMENT sizeof(int)
 #define _VA_ROUND_UP(n) (((n) + _VA_ALIGNMENT - 1) & ~(_VA_ALIGNMENT - 1))
 
-#define va_start(ap, last)                                                     \
+#define va_start(ap, last)													   \
 	((ap) = (va_list) & (last) + _VA_ROUND_UP(sizeof(last)))
-#define va_arg(ap, type)                                                       \
-	(*(type*)((ap) += _VA_ROUND_UP(sizeof(type)),                              \
+#define va_arg(ap, type)													   \
+	(*(type*)((ap) += _VA_ROUND_UP(sizeof(type)),							   \
 			  (ap) - _VA_ROUND_UP(sizeof(type))))
 #define va_end(ap) ((ap) = (va_list)0)
 #define va_copy(dest, src) ((dest) = (src))

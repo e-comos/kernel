@@ -9,17 +9,19 @@
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.	 See the
  * GNU Affero General Public License for more details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along this program.  If not, see <https://www.gnu.org/licenses />.
+ * along this program.	If not, see <https://www.gnu.org/licenses />.
  */
 #include <kernel/internal/types.h>
 #include <kernel/mm.h>
+#include <kernel/percpu.h>
 #include <kernel/printkit/print.h>
 #include <kernel/sched.h>
 #include <klibc/string.h>
+#include <user_space/user_mode.h>
 
 static Thread threads[MAX_THREADS];
 static uint32_t current_thread = 0;
@@ -27,6 +29,62 @@ static uint32_t next_thread_id = 1;
 static int scheduler_initialized = 0;
 
 extern void cpu_switch_to(uintptr_t* old_sp, uintptr_t new_sp);
+
+static void thread_exit(void);
+
+static void user_thread_start(void) {
+	Thread* thread = sched_get_current_thread();
+	if (!thread)
+		while (1)
+			asm volatile("hlt");
+	switch_to_user_mode(thread->user_entry, thread->user_rsp);
+}
+
+static int create_thread_context(void (*entry_point)(void), uint32_t stack_pages,
+								 uintptr_t user_entry, uintptr_t user_rsp) {
+	for (int i = 0; i < MAX_THREADS; i++) {
+		if (threads[i].state != THREAD_TERMINATED)
+			continue;
+
+		void* stack = mm_alloc_pages(stack_pages);
+		if (!stack) {
+			print_str("[SCHED] mm_alloc_pages failed\n", 0x0F);
+			return -1;
+		}
+
+		Thread* thread = &threads[i];
+		uintptr_t stack_top = (uintptr_t)stack + (uintptr_t)stack_pages * PAGE_SIZE;
+		stack_top &= ~0xFULL;
+		thread->syscall_stack_top = stack_top;
+
+		stack_top -= sizeof(uint64_t);
+		*(uint64_t*)stack_top = (uint64_t)(uintptr_t)thread_exit;
+		stack_top -= sizeof(uint64_t);
+		*(uint64_t*)stack_top = (uint64_t)(uintptr_t)entry_point;
+
+		uintptr_t new_sp = stack_top - 6 * sizeof(uint64_t);
+		for (int r = 0; r < 6; r++)
+			((uint64_t*)(new_sp + r * sizeof(uint64_t)))[0] = 0;
+
+		thread->stack_ptr = new_sp;
+		thread->id = next_thread_id++;
+		thread->priority = 1;
+		thread->gs_base = 0;
+		thread->user_entry = user_entry;
+		thread->user_rsp = user_rsp;
+		thread->syscall_active = 0;
+		thread->ipc_head = 0;
+		thread->ipc_tail = 0;
+		thread->ipc_count = 0;
+		for (int j = 0; j < IPC_MAX_QUEUE_SIZE; j++)
+			thread->ipc_queue[j] = 0;
+
+		thread->state = THREAD_READY;
+		return (int)thread->id;
+	}
+	print_str("[SCHED] Max thread capacity reached\n", 0x0F);
+	return -1;
+}
 
 static void thread_exit(void) {
 	Thread* cur = sched_get_current_thread();
@@ -40,7 +98,7 @@ static void thread_exit(void) {
 	while (cur->ipc_count > 0) {
 		ipc_message_t* msg = cur->ipc_queue[cur->ipc_head];
 		if (msg)
-			mm_free_page(msg);
+			ipc_message_free(msg);
 		cur->ipc_head = (cur->ipc_head + 1) % IPC_MAX_QUEUE_SIZE;
 		cur->ipc_count--;
 	}
@@ -59,6 +117,7 @@ void sched_init(void) {
 	threads[0].id = next_thread_id++;
 	threads[0].state = THREAD_RUNNING;
 	threads[0].gs_base = 0;
+	threads[0].syscall_stack_top = percpu_get()->kernel_rsp;
 
 	uintptr_t boot_rsp;
 	__asm__ volatile("mov %%rsp, %0" : "=r"(boot_rsp));
@@ -70,50 +129,13 @@ void sched_init(void) {
 int sched_create_thread(void (*entry_point)(void)) {
 	if (!entry_point)
 		return -1;
+	return create_thread_context(entry_point, 1, 0, 0);
+}
 
-	for (int i = 0; i < MAX_THREADS; i++) {
-		if (threads[i].state == THREAD_TERMINATED) {
-			void* stack = mm_alloc_page();
-			if (!stack) {
-				print_str("[SCHED] mm_alloc_page failed\n", 0x0F);
-				return -1;
-			}
-
-			uintptr_t stack_top = (uintptr_t)stack + PAGE_SIZE;
-			stack_top &= ~0xFULL; // 16‑byte alignment
-
-			// Push exit trampoline (will be popped when entry_point returns)
-			stack_top -= sizeof(uint64_t);
-			*(uint64_t*)stack_top = (uint64_t)(uintptr_t)thread_exit;
-
-			// Push entry point (ret will pop this first)
-			stack_top -= sizeof(uint64_t);
-			*(uint64_t*)stack_top = (uint64_t)(uintptr_t)entry_point;
-
-			// Now stack_top points to entry_point.
-			// cpu_switch_to will pop 6 registers before ret, so we need 6 zero
-			// slots below entry_point. The stack pointer passed to
-			// cpu_switch_to (new_sp) must point to the first zero slot.
-			uintptr_t new_sp = stack_top - 6 * sizeof(uint64_t);
-			for (int r = 0; r < 6; r++)
-				((uint64_t*)(new_sp + r * sizeof(uint64_t)))[0] = 0;
-
-			threads[i].stack_ptr = new_sp;
-			threads[i].id = next_thread_id++;
-			threads[i].priority = 1;
-			threads[i].gs_base = 0;
-			threads[i].ipc_head = 0;
-			threads[i].ipc_tail = 0;
-			threads[i].ipc_count = 0;
-			for (int j = 0; j < IPC_MAX_QUEUE_SIZE; j++)
-				threads[i].ipc_queue[j] = 0;
-
-			threads[i].state = THREAD_READY;
-			return (int)threads[i].id;
-		}
-	}
-	print_str("[SCHED] Max thread capacity reached\n", 0x0F);
-	return -1;
+int sched_create_user_thread(uintptr_t entry_point, uintptr_t user_rsp) {
+	if (!entry_point || !user_rsp || (user_rsp & 0xFULL))
+		return -1;
+	return create_thread_context(user_thread_start, 2, entry_point, user_rsp);
 }
 
 void sched_yield(void) {
@@ -142,13 +164,26 @@ void sched_schedule(void) {
 
 	uint32_t prev = current_thread;
 	current_thread = found;
+	percpu_t* percpu = percpu_get();
+	Thread* previous_thread = &threads[prev];
+	Thread* next_thread = &threads[current_thread];
+
+	if (percpu->syscall_active) {
+		previous_thread->user_rsp = percpu->user_rsp;
+		previous_thread->syscall_active = 1;
+	} else {
+		previous_thread->syscall_active = 0;
+	}
 
 	if (threads[prev].state == THREAD_RUNNING) {
 		threads[prev].state = THREAD_READY;
 	}
-	threads[current_thread].state = THREAD_RUNNING;
+	next_thread->state = THREAD_RUNNING;
+	percpu->kernel_rsp = next_thread->syscall_stack_top;
+	percpu->user_rsp = next_thread->user_rsp;
+	percpu->syscall_active = next_thread->syscall_active;
 
-	cpu_switch_to(&threads[prev].stack_ptr, threads[current_thread].stack_ptr);
+	cpu_switch_to(&previous_thread->stack_ptr, next_thread->stack_ptr);
 }
 
 Thread* sched_get_thread_by_pid(uint32_t pid) {

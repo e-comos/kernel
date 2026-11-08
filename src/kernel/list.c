@@ -1,6 +1,6 @@
 /*
 	E-comOS Kernel - Doubly-linked List
-	Copyright (C) 2025,2026  Saladin5101
+	Copyright (C) 2025,2026	 Saladin5101
 */
 
 #include <kernel/internal/list.h>

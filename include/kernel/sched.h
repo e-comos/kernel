@@ -1,6 +1,6 @@
 /*
 	E-comOS Kernel - A Microkernel for E-comOS
-	Copyright (C) 2025,2026  Saladin5101
+	Copyright (C) 2025,2026	 Saladin5101
 
 	This program is free software: you can redistribute it and/or modify
 	it under the terms of the GNU Affero General Public License as published
@@ -33,6 +33,10 @@ typedef struct thread {
 	uint32_t id;
 	thread_state state;
 	uintptr_t stack_ptr;
+	uintptr_t syscall_stack_top;
+	uintptr_t user_rsp;
+	uintptr_t user_entry;
+	uint8_t syscall_active;
 	uint32_t priority;
 	uint8_t block_reason;
 	int32_t last_error;
@@ -49,6 +53,7 @@ typedef struct thread {
 
 void sched_init(void);
 int sched_create_thread(void (*entry_point)(void));
+int sched_create_user_thread(uintptr_t entry_point, uintptr_t user_rsp);
 void sched_yield(void);
 void sched_schedule(void);
 Thread* sched_get_thread_by_pid(uint32_t pid);

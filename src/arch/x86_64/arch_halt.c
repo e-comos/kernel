@@ -1,6 +1,6 @@
 /**
  * E-com_os Kernel - A Microkernel for E-com_os
- * Copyright (C) 2025,2026  Saladin5101
+ * Copyright (C) 2025,2026	Saladin5101
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published
@@ -9,11 +9,11 @@
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.	 See the
  * GNU Affero General Public License for more details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program.	 If not, see <https://www.gnu.org/licenses/>.
  */
 #ifndef ARCH_HALT_H
 #define ARCH_HALT_H

@@ -9,11 +9,11 @@
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.	 See the
  * GNU Affero General Public License for more details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along this program.  If not, see <https://www.gnu.org/licenses />.
+ * along this program.	If not, see <https://www.gnu.org/licenses />.
  */
 #include <kernel/internal/kernel.h>
 #include <kernel/ipc.h>
@@ -24,16 +24,15 @@
 int ipc_send(thread_id target, ipc_message_t* msg) {
 	if (!msg)
 		return -1;
-	if ((uintptr_t)msg & (1ULL << 63)) {
-		return -1;
-	}
 	Thread* t = sched_get_thread_by_pid(target);
 	if (!t)
 		return -1;
 	if (t->ipc_count >= IPC_MAX_QUEUE_SIZE)
 		return -1;
 
-	ipc_message_t* copy = mm_alloc_page();
+	uint32_t page_count =
+		(uint32_t)((sizeof(ipc_message_t) + PAGE_SIZE - 1) / PAGE_SIZE);
+	ipc_message_t* copy = mm_alloc_pages(page_count);
 	if (!copy)
 		return -1;
 	*copy = *msg;
@@ -70,9 +69,17 @@ int ipc_receive(ipc_message_t* msg) {
 
 	ipc_message_t* entry = cur->ipc_queue[cur->ipc_head];
 	memcpy(msg, entry, sizeof(ipc_message_t));
-	mm_free_page(entry);
+	ipc_message_free(entry);
 
 	cur->ipc_head = (cur->ipc_head + 1) % IPC_MAX_QUEUE_SIZE;
 	cur->ipc_count--;
 	return 0;
+}
+
+void ipc_message_free(ipc_message_t* msg) {
+	if (!msg)
+		return;
+	uint32_t page_count =
+		(uint32_t)((sizeof(ipc_message_t) + PAGE_SIZE - 1) / PAGE_SIZE);
+	mm_free_pages(msg, page_count);
 }

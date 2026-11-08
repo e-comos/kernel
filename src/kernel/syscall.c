@@ -1,6 +1,6 @@
 /*
 	E-comOS Kernel - Syscall handler
-	Copyright (C) 2025,2026  Saladin5101
+	Copyright (C) 2025,2026	 Saladin5101
 
 	This program is free software: you can redistribute it and/or modify
 	it under the terms of the GNU Affero General Public License as published
@@ -40,6 +40,33 @@ static irq_waiter irq_waiters[MAX_IRQ_WAITERS];
 static uint32_t num_waiters = 0;
 static volatile uint32_t irq_occurred[MAX_IRQS];
 static volatile uint32_t irq_occurrence_count[MAX_IRQS];
+
+#define USER_ADDRESS_START 0x400000ULL
+#define USER_ADDRESS_END   0x900000ULL
+
+static int user_range_valid(uintptr_t address, size_t size) {
+	if (size == 0)
+		return 1;
+	if (address < USER_ADDRESS_START || address >= USER_ADDRESS_END)
+		return 0;
+	return size <= USER_ADDRESS_END - address;
+}
+
+static int copy_from_user(void* kernel_dst, uintptr_t user_src, size_t size) {
+	if ((!kernel_dst && size) || !user_range_valid(user_src, size))
+		return -1;
+	if (size)
+		memcpy(kernel_dst, (const void*)user_src, size);
+	return 0;
+}
+
+static int copy_to_user(uintptr_t user_dst, const void* kernel_src, size_t size) {
+	if ((!kernel_src && size) || !user_range_valid(user_dst, size))
+		return -1;
+	if (size)
+		memcpy((void*)user_dst, kernel_src, size);
+	return 0;
+}
 
 void syscall_irq_init(void) {
 	for (int i = 0; i < MAX_IRQ_WAITERS; i++) {
@@ -175,19 +202,19 @@ long syscall_handler(uint32_t num, uint32_t arg1, uint32_t arg2,
 	case SYS_IPC_SEND: {
 		thread_id tid = (thread_id)arg1;
 		ipc_message_t kmsg;
-		memcpy(&kmsg, (const void*)(uintptr_t)arg2, sizeof(ipc_message_t));
+		if (copy_from_user(&kmsg, arg2, sizeof(kmsg)) != 0)
+			return -1;
 		__asm__ volatile("" : : "r"(tid), "r"(&kmsg) : "memory");
 		return ipc_send((thread_id)tid, &kmsg);
 	}
 	case SYS_IPC_RECEIVE: {
-		uintptr_t uaddr = (uintptr_t)arg1;
-		/* Treat addresses below 0x800000000000 as user-space. Reject
-		 * any address that is in the kernel/high-half region. */
-		if (uaddr >= 0x800000000000ULL) {
+		ipc_message_t kmsg;
+		if (!user_range_valid(arg1, sizeof(kmsg)))
 			return -1;
-		}
-		__asm__ volatile("" : : "r"(arg1) : "memory");
-		return ipc_receive((ipc_message_t*)(uintptr_t)arg1);
+		int result = ipc_receive(&kmsg);
+		if (result != 0)
+			return result;
+		return copy_to_user(arg1, &kmsg, sizeof(kmsg));
 	}
 	case SYS_THREAD_YIELD:
 		sched_yield();
@@ -209,7 +236,10 @@ long syscall_handler(uint32_t num, uint32_t arg1, uint32_t arg2,
 			return old;
 		}
 	case SYS_THREAD_CREATE:
-		return sched_create_thread((void (*)(void))(uintptr_t)arg1);
+		if (!user_range_valid(arg1, 1) || arg2 <= USER_ADDRESS_START ||
+			arg2 > USER_ADDRESS_END || (arg2 & 0xFULL))
+			return -1;
+		return sched_create_user_thread(arg1, arg2);
 	case SYS_MM_ALLOC_PAGES:
 		return (long)(uintptr_t)mm_alloc_pages(arg1);
 	case SYS_MM_FREE_PAGES:
@@ -218,37 +248,49 @@ long syscall_handler(uint32_t num, uint32_t arg1, uint32_t arg2,
 	case SYS_GET_MONOTIME:
 		return (long)time_get_current_ms();
 	case SYS_GETRANDOM: {
-		/* FIXME: Simple LCG seeded from monotonic time */
-		uint8_t* buf = (uint8_t*)(uintptr_t)arg1;
 		uint32_t len = arg2;
-		if (!buf)
+		uintptr_t user_buf = arg1;
+		if (!user_range_valid(user_buf, len))
 			return -1;
+		if (len == 0)
+			return 0;
+
+		/* FIXME: Simple LCG seeded from monotonic time */
 		static uint64_t rng_state = 0;
 		if (!rng_state)
 			rng_state = time_get_current_ms() ^ 0xDEADBEEFULL;
-		for (uint32_t i = 0; i < len; i++) {
-			rng_state =
-				rng_state * 6364136223846793005ULL + 1442695040888963407ULL;
-			buf[i] = (uint8_t)(rng_state >> 33);
+		uint8_t chunk[64];
+		for (uint32_t offset = 0; offset < len;) {
+			uint32_t chunk_size = len - offset;
+			if (chunk_size > sizeof(chunk))
+				chunk_size = sizeof(chunk);
+			for (uint32_t i = 0; i < chunk_size; i++) {
+				rng_state = rng_state * 6364136223846793005ULL +
+					1442695040888963407ULL;
+				chunk[i] = (uint8_t)(rng_state >> 33);
+			}
+			if (copy_to_user(user_buf + offset, chunk, chunk_size) != 0)
+				return -1;
+			offset += chunk_size;
 		}
 		return 0;
 	}
 	case SYS_INFO_SYS: {
-		struct {
+		struct sys_info {
 			char sysname[32];
 			char release[32];
 			char machine[32];
-		}* u = (void*)(uintptr_t)arg1;
-		if (!u)
+		} info = {0};
+		if (!user_range_valid(arg1, sizeof(info)))
 			return -1;
 		const char *sn = "E-comOS", *rel = "0.1", *mach = "x86_64";
 		for (int i = 0; sn[i]; i++)
-			u->sysname[i] = sn[i];
+			info.sysname[i] = sn[i];
 		for (int i = 0; rel[i]; i++)
-			u->release[i] = rel[i];
+			info.release[i] = rel[i];
 		for (int i = 0; mach[i]; i++)
-			u->machine[i] = mach[i];
-		return 0;
+			info.machine[i] = mach[i];
+		return copy_to_user(arg1, &info, sizeof(info));
 	}
 	/* SYS_SHM_OPEN, SYS_SHM_UNLINK, SYS_GETRLIMIT, SYS_SETRLIMIT,
 	   SYS_SLEEP_PRO, SYS_TIMER_CREATE, SYS_SETTIMEOFDAY, SYS_HLUD_REQUEST

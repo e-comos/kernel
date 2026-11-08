@@ -1,6 +1,6 @@
 /*
 	E-com_os Kernel - Interrupt Descriptor Table (64-bit)
-	Copyright (C) 2025,2026  Saladin5101
+	Copyright (C) 2025,2026	 Saladin5101
 
 	This program is free software: you can redistribute it and/or modify
 	it under the terms of the GNU Affero General Public License as published
@@ -63,7 +63,7 @@ static void idt_set_gate_ist(uint8_t num, uint64_t base, uint16_t sel,
 }
 
 #define GATE(n, fn) idt_set_gate((n), (uint64_t)(uintptr_t)(fn), 0x08, 0x8E)
-#define GATE_IST(n, fn)                                                        \
+#define GATE_IST(n, fn)														   \
 	idt_set_gate_ist((n), (uint64_t)(uintptr_t)(fn), 0x08, 0x8E, 1)
 #define UGATE(n, fn) idt_set_gate((n), (uint64_t)(uintptr_t)(fn), 0x08, 0xEE)
 

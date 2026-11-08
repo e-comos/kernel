@@ -1,6 +1,6 @@
 /*
 	E-comOS Kernel - Boot Parameters
-	Copyright (C) 2025,2026  Saladin5101
+	Copyright (C) 2025,2026	 Saladin5101
 
 	Precondition:  filled by the UEFI bootloader before jumping to _start.
 	Postcondition: read-only after kernel_main receives it.

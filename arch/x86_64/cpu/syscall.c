@@ -1,6 +1,6 @@
 /*
 	E-comOS Kernel - SYSCALL/SYSRET mechanism support
-	Copyright (C) 2025,2026  Saladin5101
+	Copyright (C) 2025,2026	 Saladin5101
 
 	This program is free software: you can redistribute it and/or modify
 	it under the terms of the GNU Affero General Public License as published
@@ -36,6 +36,7 @@
  * Index 4 (0x20): User code segment (with RPL=3 becomes 0x23)
  */
 #define KERNEL_CS 0x08 /* Kernel code segment (ring 0) */
+#define KERNEL_DS 0x10 /* Kernel data segment (ring 0) */
 #define USER_CS 0x23   /* User code segment (ring 3 when RPL=3) */
 #define USER_DS 0x1B   /* User data segment (ring 3 when RPL=3) */
 
@@ -78,10 +79,10 @@ void enable_syscall_mechanism(void) {
 
 	/* Verify per-CPU data */
 	percpu_t* pcpu = percpu_get();
-	print_str("  Kernel stack top at 0x", 0x0A);
+	print_str("	 Kernel stack top at 0x", 0x0A);
 	print_hex((uint32_t)pcpu->kernel_rsp, 0x0A);
 	print_str("\n", 0x0A);
-	print_str("  Per-CPU data at 0x", 0x0A);
+	print_str("	 Per-CPU data at 0x", 0x0A);
 	print_hex((uint32_t)(uintptr_t)pcpu, 0x0A);
 	print_str("\n", 0x0A);
 
@@ -90,7 +91,7 @@ void enable_syscall_mechanism(void) {
 	efer_value |= EFER_SCE; /* Set System Call Extensions bit */
 	write_msr(MSR_EFER, efer_value);
 
-	print_str("  EFER.SCE enabled (EFER=0x", 0x0A);
+	print_str("	 EFER.SCE enabled (EFER=0x", 0x0A);
 	print_hex((uint32_t)efer_value, 0x0A);
 	print_hex((uint32_t)(efer_value >> 32), 0x0A);
 	print_str(")\n", 0x0A);
@@ -100,11 +101,11 @@ void enable_syscall_mechanism(void) {
 	 * Bits 47:32: kernel CS selector with RPL=0.
 	 * Our layout: USER_CS=0x23, KERNEL_CS=0x08.
 	 */
-	uint64_t star_value = ((uint64_t)USER_CS << 48) |
+	uint64_t star_value = ((uint64_t)KERNEL_DS << 48) |
 					 ((uint64_t)KERNEL_CS << 32);
 	write_msr(MSR_STAR, star_value);
 
-	print_str("  STAR configured (0x", 0x0A);
+	print_str("	 STAR configured (0x", 0x0A);
 	print_hex((uint32_t)star_value, 0x0A);
 	print_hex((uint32_t)(star_value >> 32), 0x0A);
 	print_str(")\n", 0x0A);
@@ -114,7 +115,7 @@ void enable_syscall_mechanism(void) {
 	 */
 	write_msr(MSR_LSTAR, (uint64_t)(uintptr_t)syscall_entry);
 
-	print_str("  LSTAR set to syscall_entry (0x", 0x0A);
+	print_str("	 LSTAR set to syscall_entry (0x", 0x0A);
 	print_hex((uint32_t)(uintptr_t)syscall_entry, 0x0A);
 	print_hex((uint32_t)((uintptr_t)syscall_entry >> 32), 0x0A);
 	print_str(")\n", 0x0A);
@@ -124,7 +125,7 @@ void enable_syscall_mechanism(void) {
 	 */
 	write_msr(MSR_SFMASK, (1u << 9) | (1u << 8)); /* Clear IF and TF flags */
 
-	print_str("  SFMASK set to disable IF+TF on SYSCALL (0x", 0x0A);
+	print_str("	 SFMASK set to disable IF+TF on SYSCALL (0x", 0x0A);
 	print_hex(((1u << 9) | (1u << 8)), 0x0A);
 	print_str(")\n", 0x0A);
 

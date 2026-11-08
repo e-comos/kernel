@@ -1,6 +1,6 @@
 /*
 	E-comOS Kernel - Per-CPU data structures implementation
-	Copyright (C) 2025,2026  Saladin5101
+	Copyright (C) 2025,2026	 Saladin5101
 */
 
 #include <kernel/debug.h>
@@ -19,6 +19,7 @@ void percpu_init(void) {
 	bsp_percpu.kernel_rsp = (uint64_t)(uintptr_t)(syscall_kernel_stack +
 												  sizeof(syscall_kernel_stack));
 	bsp_percpu.user_rsp = 0;
+	bsp_percpu.syscall_active = 0;
 
 	/*
 	 * Set KernelGSbase MSR (0xC0000102) to point to our per-CPU data.

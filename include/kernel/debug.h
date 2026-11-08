@@ -1,6 +1,6 @@
 /*
 	E-comOS Kernel - Debug Utilities
-	Copyright (C) 2025,2026  Saladin5101
+	Copyright (C) 2025,2026	 Saladin5101
 */
 
 #ifndef KERNEL_DEBUG_H

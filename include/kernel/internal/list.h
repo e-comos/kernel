@@ -1,6 +1,6 @@
 /*
 	E-com_os Kernel - Doubly-linked List
-	Copyright (C) 2025,2026  Saladin5101
+	Copyright (C) 2025,2026	 Saladin5101
 */
 
 #ifndef KERNEL_INTERNAL_LIST_H

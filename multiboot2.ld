@@ -16,63 +16,66 @@ KERNEL_LOAD_ADDR = 0x100000;
 
 PHDRS
 {
-    text PT_LOAD FLAGS(5);
-    rodata PT_LOAD FLAGS(4);
-    data PT_LOAD FLAGS(6);
+	text PT_LOAD FLAGS(5);
+	rodata PT_LOAD FLAGS(4);
+	data PT_LOAD FLAGS(6);
 }
 
 SECTIONS
 {
-    . = KERNEL_VIRTUAL_BASE + KERNEL_LOAD_ADDR;
-    _kernel_start = .;
+	. = KERNEL_VIRTUAL_BASE + KERNEL_LOAD_ADDR;
+	_kernel_start = .;
 
-    .multiboot2 : AT(KERNEL_LOAD_ADDR) ALIGN(8)
-    {
-        KEEP(*(.multiboot2))
-    } :text
+	.multiboot2 : AT(KERNEL_LOAD_ADDR) ALIGN(8)
+	{
+		KEEP(*(.multiboot2))
+	} :text
 
-    . = ALIGN(8);
-    .text : AT(LOADADDR(.multiboot2) + SIZEOF(.multiboot2)) ALIGN(8)
-    {
-        boot/multiboot2_start.o(.text)
-        boot/long_mode_switch.o(.text)
-        *(.text)
-        *(.text.*)
-    } :text
+	. = ALIGN(8);
+	.text : AT(LOADADDR(.multiboot2) + SIZEOF(.multiboot2)) ALIGN(8)
+	{
+		boot/multiboot2_start.o(.text)
+		boot/long_mode_switch.o(.text)
+		*(.text)
+		*(.text.*)
+	} :text
 
-    .rodata : AT(LOADADDR(.text) + SIZEOF(.text)) ALIGN(4K)
-    {
-        *(.rodata)
-        *(.rodata.*)
-    } :rodata
+	.rodata : AT(LOADADDR(.text) + SIZEOF(.text)) ALIGN(4K)
+	{
+		*(.rodata)
+		*(.rodata.*)
+	} :rodata
 
-    .data : AT(LOADADDR(.rodata) + SIZEOF(.rodata)) ALIGN(4K)
-    {
-        *(.data)
-        *(.data.*)
-    } :data
+	.data : AT(LOADADDR(.rodata) + SIZEOF(.rodata)) ALIGN(4K)
+	{
+		*(.data)
+		*(.data.*)
+	} :data
 
-    .paging (NOLOAD) : ALIGN(4K)
-    {
-        *(.paging)
-    } :data
+	.paging (NOLOAD) : ALIGN(4K)
+	{
+		*(.paging)
+	} :data
 
-    .bss (NOLOAD) : ALIGN(4K)
-    {
-        *(.bss)
-        *(.bss.*)
-        *(COMMON)
-    } :data
+	.bss (NOLOAD) : ALIGN(4K)
+	{
+		__bss_start = .;
+		*(.bss)
+		*(.bss.*)
+		*(COMMON)
+		. = ALIGN(4K);
+		__bss_end = .;
+	} :data
 
-    _kernel_end = .;
+	_kernel_end = .;
 
-    /DISCARD/ :
-    {
-        *(.comment)
-        *(.note.*)
-        *(.eh_frame)
-        *(.eh_frame_hdr)
-    }
+	/DISCARD/ :
+	{
+		*(.comment)
+		*(.note.*)
+		*(.eh_frame)
+		*(.eh_frame_hdr)
+	}
 }
 
 PROVIDE(_kernel_phys_start = KERNEL_LOAD_ADDR);

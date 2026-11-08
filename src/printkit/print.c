@@ -1,6 +1,6 @@
 /*
 	E-comOS Kernel - Print Utility
-	Copyright (C) 2025,2026  Saladin5101
+	Copyright (C) 2025,2026	 Saladin5101
 
 	This program is free software: you can redistribute it and/or modify
 	it under the terms of the GNU Affero General Public License as published
@@ -18,7 +18,7 @@
 /*
  * print.c - E-comOS Kernel Print Utility (Extended with paging and keyboard)
  *
- * Copyright (C) 2025,2026  Saladin5101
+ * Copyright (C) 2025,2026	Saladin5101
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 

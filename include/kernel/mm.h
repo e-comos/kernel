@@ -1,6 +1,6 @@
 /*
 	E-comOS Kernel - Memory Manager Interface
-	Copyright (C) 2025,2026  Saladin5101
+	Copyright (C) 2025,2026	 Saladin5101
 
 	Invariant: page_bitmap bit i == 1  ↔  physical page i is allocated.
 	Invariant: next_free_page ≤ MAX_PAGES at all times.
@@ -17,7 +17,7 @@
 #define MAX_PHYS_PAGES 4096u /* manages 16 MB: [0x100000, 0x1100000) */
 #define MAX_PAGES MAX_PHYS_PAGES
 #define KERNEL_BASE 0xffff800000000000
-#define KERNEL_SIZE 0x2000000ULL
+#define KERNEL_SIZE 0x4000000ULL
 
 #define MULTIBOOT_TAG_TYPE_END 0
 #define MULTIBOOT_TAG_TYPE_MODULE 3
@@ -55,7 +55,7 @@
 /* SECURE DATA PAGES (Execution Disabled) */
 #define MM_FLAG_KERNEL_RW (MM_FLAG_PRESENT | MM_FLAG_WRITE | MM_FLAG_NX)
 #define MM_FLAG_USER_RO (MM_FLAG_PRESENT | MM_FLAG_USER | MM_FLAG_NX)
-#define MM_FLAG_USER_RW                                                        \
+#define MM_FLAG_USER_RW														   \
 	(MM_FLAG_PRESENT | MM_FLAG_WRITE | MM_FLAG_USER | MM_FLAG_NX)
 
 /* SECURE CODE PAGES (Execution Allowed, NX=0) */
@@ -94,9 +94,9 @@ typedef enum {
  * Precondition:  called exactly once, before any mm_alloc_page call.
  * Precondition:  interrupts are disabled.
  * Postcondition: page_bitmap reflects all usable physical pages;
- *                kernel image pages are marked allocated.
+ *				  kernel image pages are marked allocated.
  * Postcondition: next_free_page points to the first free page index,
- *                or equals MAX_PAGES if no free pages exist.
+ *				  or equals MAX_PAGES if no free pages exist.
  *
  * boot_params may be NULL; in that case a conservative fallback is used.
  */
@@ -135,21 +135,9 @@ int mm_unmap_page(uint64_t vaddr);
  */
 void mm_enable_paging(void);
 
-/*
- * mm_phys_to_virt — convert physical address to kernel virtual address.
- * Higher-half kernel: kernel virtual = KERNEL_BASE + physical_address
- */
-static inline void* mm_phys_to_virt(uintptr_t phys) {
-	return (void*)(KERNEL_BASE + phys);
-}
-
-/*
- * mm_virt_to_phys — convert kernel virtual address to physical address.
- * Higher-half kernel: physical = virtual - KERNEL_BASE
- */
-static inline uintptr_t mm_virt_to_phys(void* virt) {
-	return (uintptr_t)virt - KERNEL_BASE;
-}
+/* Convert physical <-> virtual helpers (implemented in src/mm/mm.c). */
+void* mm_phys_to_virt(uintptr_t phys);
+uintptr_t mm_virt_to_phys(void* virt);
 
 /*
  * Kernel heap allocator (built on top of page allocator)

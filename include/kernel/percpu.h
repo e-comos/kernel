@@ -1,6 +1,6 @@
 /*
 	E-comOS Kernel - Per-CPU data structures
-	Copyright (C) 2025,2026  Saladin5101
+	Copyright (C) 2025,2026	 Saladin5101
 
 	This program is free software: you can redistribute it and/or modify
 	it under the terms of the GNU Affero General Public License as published
@@ -17,6 +17,7 @@
 typedef struct {
 	uint64_t kernel_rsp; /* Kernel stack pointer for syscall entry */
 	uint64_t user_rsp;	 /* Saved user stack pointer */
+	uint64_t syscall_active; /* Current thread is suspended in a syscall */
 } percpu_t;
 
 /* Initialize per-CPU data for the current CPU */

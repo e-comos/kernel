@@ -1,6 +1,6 @@
 /*
 	E-comOS Kernel - Main entry point
-	Copyright (C) 2025,2026  Saladin5101
+	Copyright (C) 2025,2026	 Saladin5101
 
 	Precondition:  called from _start with interrupts disabled.
 	Precondition:  boot_params is either NULL or a valid UEFI memory map.
@@ -39,6 +39,7 @@ void kernel_main(void* boot_info) {
 
 	/* Enable SYSCALL/SYSRET mechanism after GDT is set up */
 	enable_syscall_mechanism();
+	enable_nxe();
 
 	/* Phase 2: Memory — must be before any mmAllocPage call */
 	print_str("Memory subsystem...\n", 0x1F);
@@ -46,7 +47,6 @@ void kernel_main(void* boot_info) {
 	if (mm_status != MEMORY_SUCCESS) {
 		kernel_panic("mmInit failed — no usable memory");
 	}
-	mm_enable_paging();
 
 	/* Phase 3: Scheds */
 	sched_init();
@@ -60,7 +60,6 @@ void kernel_main(void* boot_info) {
 	/* Phase 5: IPC + syscall IRQ subsystem */
 	print_str("IPC + syscall...\n", 0x1F);
 	enable_sse();
-	enable_nxe(); /* Enable NX (No-Execute) bit support in IA32_EFER MSR */
 	syscall_irq_init();
 
 	/* Phase 5.1: Load user-space driver from GRUB module */

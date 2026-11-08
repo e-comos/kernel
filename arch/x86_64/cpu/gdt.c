@@ -1,15 +1,15 @@
 /*
 	E-comOS Kernel - Global Descriptor Table + TSS (64-bit)
-	Copyright (C) 2025,2026  Saladin5101
+	Copyright (C) 2025,2026	 Saladin5101
 
 	GDT layout:
-	  0x00  null
-	  0x08  kernel code  (ring 0, 64-bit)
-	  0x10  kernel data  (ring 0)
-	  0x18  user   code  (ring 3, 64-bit)   selector 0x23 (|3)
-	  0x20  user   data  (ring 3)            selector 0x1B (|3)
-	  0x28  TSS low  (16 bytes, two GDT slots)
-	  0x30  TSS high
+	  0x00	null
+	  0x08	kernel code	 (ring 0, 64-bit)
+	  0x10	kernel data	 (ring 0)
+	  0x18	user   code	 (ring 3, 64-bit)	selector 0x23 (|3)
+	  0x20	user   data	 (ring 3)			 selector 0x1B (|3)
+	  0x28	TSS low	 (16 bytes, two GDT slots)
+	  0x30	TSS high
 
 	64-bit TSS (Intel SDM Vol.3 §7.7):
 	  rsp0 at offset +4 (used on ring-3 → ring-0 transition)
@@ -24,7 +24,7 @@
 #define USER_DS_SELECTOR ((GDT_USER_DATA_INDEX << 3) | 0x03) // 0x1B
 
 /* ------------------------------------------------------------------ */
-/* GDTR (10 bytes for 64-bit mode)                                    */
+/* GDTR (10 bytes for 64-bit mode)									  */
 /* ------------------------------------------------------------------ */
 typedef struct {
 	uint16_t limit;
@@ -32,7 +32,7 @@ typedef struct {
 } __attribute__((packed)) gdt_ptr64;
 
 /* ------------------------------------------------------------------ */
-/* 64-bit TSS descriptor (16 bytes = two GDT slots)                  */
+/* 64-bit TSS descriptor (16 bytes = two GDT slots)					 */
 /* ------------------------------------------------------------------ */
 typedef struct {
 	uint16_t limit_low;
@@ -46,22 +46,22 @@ typedef struct {
 } __attribute__((packed)) tss_descriptor;
 
 /* ------------------------------------------------------------------ */
-/* 64-bit TSS body (Intel SDM Vol.3 §7.7, Table 7-11)               */
+/* 64-bit TSS body (Intel SDM Vol.3 §7.7, Table 7-11)				*/
 /* ------------------------------------------------------------------ */
 typedef struct {
 	uint32_t reserved0;
-	uint64_t rsp0; /* kernel stack for ring-3 → ring-0            */
+	uint64_t rsp0; /* kernel stack for ring-3 → ring-0			  */
 	uint64_t rsp1;
 	uint64_t rsp2;
 	uint64_t reserved1;
-	uint64_t ist[7]; /* interrupt stack table (IST1..IST7)          */
+	uint64_t ist[7]; /* interrupt stack table (IST1..IST7)			*/
 	uint64_t reserved2;
 	uint16_t reserved3;
-	uint16_t iomap_base; /* offset to I/O permission bitmap             */
+	uint16_t iomap_base; /* offset to I/O permission bitmap				*/
 } __attribute__((packed)) Tss64;
 
 /* ------------------------------------------------------------------ */
-/* Static storage                                                     */
+/* Static storage													  */
 /* ------------------------------------------------------------------ */
 /* 7 entries total:
  * - Indices 0-4: Standard code and data segments
@@ -75,7 +75,7 @@ static uint8_t kernel_stack[65536] __attribute__((aligned(16)));
 static uint8_t interrupt_stack[32768] __attribute__((aligned(16)));
 
 /* ------------------------------------------------------------------ */
-/* Public Set Gate Function (conforms to gdt.h)                       */
+/* Public Set Gate Function (conforms to gdt.h)						  */
 /* ------------------------------------------------------------------ */
 void gdt_set_gate(int num, uint32_t base, uint32_t limit, uint8_t access,
 				  uint8_t gran) {
@@ -90,7 +90,7 @@ void gdt_set_gate(int num, uint32_t base, uint32_t limit, uint8_t access,
 }
 
 /* ------------------------------------------------------------------ */
-/* GDT Initialization                                                 */
+/* GDT Initialization												  */
 /* ------------------------------------------------------------------ */
 void gdt_init(void) {
 	/* Null descriptor */

@@ -1,6 +1,6 @@
 /*
 	E-comOS Kernel - Early Initialization and Debugging
-	Copyright (C) 2025,2026  Saladin5101
+	Copyright (C) 2025,2026	 Saladin5101
 
 	This program is free software: you can redistribute it and/or modify
 	it under the terms of the GNU Affero General Public License as published
@@ -44,7 +44,7 @@ void early_debug_init(void) {
 	outb(COM1 + 1, 0x00); /* Disable all interrupts */
 	outb(COM1 + 3, 0x80); /* Enable DLAB (set baud rate divisor) */
 	outb(COM1 + 0, 0x03); /* Set divisor to 3 (lo byte) 38400 baud */
-	outb(COM1 + 1, 0x00); /*                  (hi byte) */
+	outb(COM1 + 1, 0x00); /*				  (hi byte) */
 	outb(COM1 + 3, 0x03); /* 8 bits, no parity, one stop bit */
 	outb(COM1 + 2, 0xC7); /* Enable FIFO, clear them, with 14-byte threshold */
 	outb(COM1 + 4, 0x0B); /* IRQs enabled, RTS/DSR set */
@@ -155,7 +155,7 @@ void enable_sse(void) {
 	__asm__ volatile(
 		"mov %%cr0, %%rax\n\t"
 		"and $0xFFFB, %%ax\n\t" /* Clear CR0.EM (bit 2) - Enable FPU/MMX/SSE */
-		"or  $0x2,    %%ax\n\t" /* Set   CR0.MP (bit 1) - Monitor Coprocessor */
+		"or	 $0x2,	  %%ax\n\t" /* Set	 CR0.MP (bit 1) - Monitor Coprocessor */
 		"mov %%rax, %%cr0"
 		:
 		:
@@ -228,12 +228,12 @@ void enable_nxe(void) {
  * initialized.
  *
  * Parameters:
- *   multiboot_magic - The magic number from the bootloader (e.g., GRUB)
- *   multiboot_info  - Physical address of the Multiboot information structure
+ *	 multiboot_magic - The magic number from the bootloader (e.g., GRUB)
+ *	 multiboot_info	 - Physical address of the Multiboot information structure
  *
  * Returns:
- *   0 on success, or a negative error code on failure (though failure typically
- *   leads to a panic/halt).
+ *	 0 on success, or a negative error code on failure (though failure typically
+ *	 leads to a panic/halt).
  *-----------------------------------------------------------------------------
  */
 int early_kernel_init(uint32_t multiboot_magic, uint32_t multiboot_info) {
@@ -255,10 +255,10 @@ int early_kernel_init(uint32_t multiboot_magic, uint32_t multiboot_info) {
 
 	/* Step 3: (Placeholder) Future early initialization steps can be added
 	 * here:
-	 *   - Parse Multiboot information to locate memory maps, kernel symbols,
+	 *	 - Parse Multiboot information to locate memory maps, kernel symbols,
 	 * etc.
-	 *   - Initialize a basic VGA text mode console.
-	 *   - Set up a temporary memory map or allocator.
+	 *	 - Initialize a basic VGA text mode console.
+	 *	 - Set up a temporary memory map or allocator.
 	 */
 
 	early_debug_puts(
