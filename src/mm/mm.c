@@ -1119,6 +1119,48 @@ void mm_check_page(uint64_t vaddr) {
 }
 
 /* ------------------------------------------------------------------ */
+/* mm_lookup_entry - read the leaf page-table entry of a virtual address
+ *
+ * Returns the raw entry, or 0 when any level of the walk is not present.
+ * If the mapping is covered by a 2MB huge page the PDE itself is returned
+ * and *is_huge is set to 1.
+ * ------------------------------------------------------------------ */
+static uint64_t mm_lookup_entry(uint64_t vaddr, int* is_huge) {
+	*is_huge = 0;
+
+	uint64_t pml4_idx = (vaddr >> 39) & 0x1FF;
+	uint64_t pdp_idx = (vaddr >> 30) & 0x1FF;
+	uint64_t pd_idx = (vaddr >> 21) & 0x1FF;
+	uint64_t pt_idx = (vaddr >> 12) & 0x1FF;
+
+	if (!(pml4[pml4_idx] & PTE_PRESENT))
+		return 0;
+
+	uint64_t* pdp =
+		(uint64_t*)(uintptr_t)((pml4[pml4_idx] & ~0xFFFULL) + KERNEL_BASE);
+	if (!(pdp[pdp_idx] & PTE_PRESENT))
+		return 0;
+
+	uint64_t* pd =
+		(uint64_t*)(uintptr_t)((pdp[pdp_idx] & ~0xFFFULL) + KERNEL_BASE);
+	if (!(pd[pd_idx] & PTE_PRESENT))
+		return 0;
+
+	/* PS bit (bit 7) marks a 2MB huge page: the PDE is the leaf entry. */
+	if (pd[pd_idx] & (1ULL << 7)) {
+		*is_huge = 1;
+		return pd[pd_idx];
+	}
+
+	uint64_t* tbl =
+		(uint64_t*)(uintptr_t)((pd[pd_idx] & ~0xFFFULL) + KERNEL_BASE);
+	if (!(tbl[pt_idx] & PTE_PRESENT))
+		return 0;
+
+	return tbl[pt_idx];
+}
+
+/* ------------------------------------------------------------------ */
 /* Dynamic page fault handler										   */
 /* ------------------------------------------------------------------ */
 /*
@@ -1155,8 +1197,62 @@ int handle_page_fault(uint64_t fault_addr, uint64_t error_code) {
 		mm_panic("Kernel page fault");
 	}
 
-	/* Verify that the faulting address is within the valid user-space region */
-	if (fault_addr >= 0x400000 && fault_addr < 0x800000) {
+	/* Decode the page-fault error code:
+	 *	 bit0 P : the page was present (a protection violation, not a
+	 *			  missing page)
+	 *	 bit1 W : the access was a write
+	 *	 bit2 U : the access came from CPL=3
+	 *	 bit4 I : the access was an instruction fetch
+	 */
+	const int pf_user = (error_code & 4) != 0;
+	const int pf_fetch = (error_code & 16) != 0;
+	const int pf_present = (error_code & 1) != 0;
+
+	/* A kernel-mode access to a user address (copy_from_user and friends)
+	 * must not be "repaired" behind the caller's back: the caller has to
+	 * see the fault and return an error instead of silently getting a
+	 * freshly mapped page.
+	 */
+	if (!pf_user)
+		return 0;
+
+	/* Fetching instructions from a non-executable page is a real bug. */
+	if (pf_fetch)
+		return 0;
+
+	/* Valid user window: 0x400000..0x900000, matching user_range_valid() and
+	 * mm_map_page().  The keyboard driver lives at 0x800000 with its stack at
+	 * 0x8FE000, so the old 0x800000 upper bound must not be used here. */
+	if (fault_addr >= 0x400000 && fault_addr < 0x900000) {
+
+		if (pf_present) {
+			/* The page-table entry exists but the access was refused.
+			 * One benign case has to be preserved: build_page_tables()
+			 * covers the whole physical window with 2MB identity huge
+			 * pages (U=0), and mm_map_page() splits one of them into
+			 * 4KB entries that inherit that U=0 flag.  Such an entry
+			 * maps phys == virt and was never handed to user space, so
+			 * it is treated as "not really mapped" and gets a fresh
+			 * frame below.
+			 *
+			 * Everything else -- writing a read-only code page,
+			 * executing a NX page, ... -- is a genuine protection
+			 * violation and must not be granted silently.
+			 */
+			int huge = 0;
+			uint64_t e = mm_lookup_entry(page_start, &huge);
+			uint64_t mapped_phys =
+				huge ? (e & ~0x1FFFFFULL) : (e & ~0xFFFULL);
+
+			if ((e & PTE_USER) || mapped_phys != page_start) {
+				print_str("MM: protection violation at 0x", 0x0C);
+				print_hex64(page_start, 0x0C);
+				print_str(" (error code: ", 0x0C);
+				print_num((uint32_t)error_code, 0x0C);
+				print_str(")\n", 0x0C);
+				return 0;
+			}
+		}
 
 		/* Allocate a fresh physical page */
 		void* page = mm_alloc_page();

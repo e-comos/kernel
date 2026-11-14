@@ -16,7 +16,9 @@
 #define USER_DATA_SELECTOR 0x1B /* index 3, DPL=3, data			*/
 
 extern uint64_t driver_phys_addr;
+extern uint64_t kbd_phys_addr;
 extern uint64_t driver_size;
+extern uint64_t kbd_size;
 
 extern uint8_t _binary_payload_init_bin_start[];
 extern uint8_t _binary_payload_init_bin_end[];
@@ -130,8 +132,12 @@ int load_init_service_to_user_mode(void) {
 			void* pa = mm_alloc_page();
 			if (!pa)
 				kernel_panic("OOM: ebts.bin page");
+			/* init-service copies the ebts image into these pages from
+			 * ring 3, so they must be user-writable while loading.  NX is
+			 * deliberately left clear: the same pages are executed once
+			 * ebts_launch() switches to EBTS_LOAD_ADDR. */
 			mm_map_page((EBTS_LOAD_ADDR + p * PAGE_SIZE), (uintptr_t)pa,
-						MM_FLAG_USER_RX);
+						MM_FLAG_USER | MM_FLAG_WRITE);
 		}
 		uint8_t* ebts_dst = (uint8_t*)EBTS_LOAD_ADDR;
 		for (uint64_t i = 0; i < ebts_size; i++)
@@ -163,8 +169,10 @@ int load_init_service_to_user_mode(void) {
 	boot[1] = ebts_size;							// ebts_size
 	boot[2] = driver_phys_addr;						// driver_src  (added)
 	boot[3] = driver_size;							// driver_size (added)
-	boot[4] = 0;									// flags
-	boot[5] = 0;									// _pad
+	boot[4] = kbd_phys_addr;						// kbd_src
+	boot[5] = kbd_size;								// kbd_size
+	boot[6] = 0;									// flags
+	boot[7] = 0;									// _pad
 
 	print_str("	 boot_info written: ebts_src=0x", 0x0F);
 	print_hex(boot[0], 0x0F);

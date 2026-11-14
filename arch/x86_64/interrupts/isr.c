@@ -12,6 +12,18 @@
 
 #include <stdint.h>
 
+/* Verbose register dump switch.  The compact one-line summary below is
+ * always printed; the 100-line dump is only compiled when this is 1. */
+#ifndef EXC_VERBOSE_DUMP
+#define EXC_VERBOSE_DUMP 0
+#endif
+
+/* Scheduler / panic entry points (declared here to keep this file
+ * self-contained, matching the print_str declarations below). */
+uint32_t sched_get_current_pid(void);
+void sched_kill_current(void);
+void kernel_panic(const char* msg);
+
 /* ---------------------------------------------------------------------------
  * External print functions (implemented in src/printkit/print.c)
  * ---------------------------------------------------------------------------
@@ -153,6 +165,51 @@ static void decode_cs(uint64_t cs) {
  * For #BP (3), #OF (4), and #PF (14) it returns so execution can resume.
  * ---------------------------------------------------------------------------
  */
+/* ---------------------------------------------------------------------------
+ * Tiny string builder used for the panic message.
+ *
+ * Assembled by hand rather than with snprintf() so the panic path has no
+ * dependency on the printf implementation (it used to be limited to
+ * %d %s %c %x, and klibc's stdarg walked the stack by hand).
+ * ---------------------------------------------------------------------------
+ */
+static int fmt_putc(char* buf, int cap, int pos, char c) {
+	if (pos < cap - 1)
+		buf[pos] = c;
+	return pos + 1;
+}
+
+static int fmt_str(char* buf, int cap, int pos, const char* s) {
+	while (*s)
+		pos = fmt_putc(buf, cap, pos, *s++);
+	return pos;
+}
+
+static int fmt_hex64(char* buf, int cap, int pos, uint64_t v) {
+	char t[16];
+	int i = 0;
+	do {
+		t[i++] = "0123456789abcdef"[v & 0xF];
+		v >>= 4;
+	} while (v);
+	pos = fmt_str(buf, cap, pos, "0x");
+	while (i)
+		pos = fmt_putc(buf, cap, pos, t[--i]);
+	return pos;
+}
+
+static int fmt_dec(char* buf, int cap, int pos, uint32_t v) {
+	char t[10];
+	int i = 0;
+	do {
+		t[i++] = '0' + (v % 10);
+		v /= 10;
+	} while (v);
+	while (i)
+		pos = fmt_putc(buf, cap, pos, t[--i]);
+	return pos;
+}
+
 void isr_handler(registers_t* regs) {
 	/* ---- Page Fault handling (vector 14) --------------------------------- */
 	if (regs->int_no == 14) {
@@ -166,6 +223,24 @@ void isr_handler(registers_t* regs) {
 		/* Page fault not handled - fall through to fatal error */
 	}
 
+	/* ---- Compact summary: always printed ------------------------------- */
+	const int from_user = (regs->cs & 0x3) == 0x3;
+	const uint32_t pid = sched_get_current_pid();
+	const char* name =
+		(regs->int_no < 32) ? exc_names[regs->int_no] : "Unknown Exception";
+
+	print_str("\n[EXC] ", 0x0C);
+	print_str(name, 0x0C);
+	print_str("\tpid=", 0x0C);
+	print_num64(pid, 0x0C);
+	print_str("\terr=0x", 0x0C);
+	print_hex64(regs->err_code, 0x0C);
+	print_str("\tRIP=0x", 0x0C);
+	print_hex64(regs->rip, 0x0C);
+	print_str(from_user ? "\t(ring 3)\n" : "\t(ring 0)\n", 0x0C);
+
+	/* ---- Verbose register dump (compile-time switch) -------------------- */
+	if (EXC_VERBOSE_DUMP) {
 	/* ---- Error Code + RFLAGS header (red) -------------------------------- */
 	print_str("Error Code: 0x", 0x0C);
 	print_hex64(regs->err_code, 0x0C);
@@ -288,24 +363,38 @@ void isr_handler(registers_t* regs) {
 	/* ---- CS decode (green) ----------------------------------------------- */
 	print_str("\n", 0x0A);
 	decode_cs(regs->cs);
-
-	/* ---- Fatal halt message (red) ---------------------------------------- */
-	print_str("\n=======================\n", 0x0C);
-	if (regs->int_no < 32) {
-		print_str(exc_names[regs->int_no], 0x0C);
-	} else {
-		print_str("Unknown Exception", 0x0C);
 	}
-	print_str(". System will halt.\n", 0x0C);
-	print_str("=======================\n", 0x0C);
 
-	/* Non-fatal vectors: return so the stub can iretq */
+	/* ---- Resumable vectors --------------------------------------------- */
 	if (regs->int_no == 3 || regs->int_no == 4) {
 		return;
 	}
 
-	/* Fatal: halt here */
-	while (1) {
-		__asm__ volatile("hlt");
+	/* ---- Fatal: decide what to do with it ------------------------------ */
+	char msg[176];
+	int mp = 0;
+	const int mcap = (int)sizeof(msg);
+	mp = fmt_str(msg, mcap, mp, name);
+	mp = fmt_str(msg, mcap, mp, " at RIP=");
+	mp = fmt_hex64(msg, mcap, mp, regs->rip);
+	mp = fmt_str(msg, mcap, mp, " err=");
+	mp = fmt_hex64(msg, mcap, mp, regs->err_code);
+	mp = fmt_str(msg, mcap, mp, " pid=");
+	mp = fmt_dec(msg, mcap, mp, pid);
+	mp = fmt_str(msg, mcap, mp, from_user ? " ring3" : " ring0");
+	if (mp > mcap - 1)
+		mp = mcap - 1;
+	msg[mp] = '\0';
+
+	/* A user thread other than init can simply be killed: the scheduler
+	 * has somewhere else to go. */
+	if (from_user && pid != 1) {
+		sched_kill_current();
+		kernel_panic("sched_kill_current returned with no runnable thread");
 	}
+
+	/* init (pid 1) is the only user process, so losing it means there is
+	 * nothing left to run -- that is a system-level failure, not a
+	 * recoverable one.  Kernel faults are fatal as well. */
+	kernel_panic(msg);
 }

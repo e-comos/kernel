@@ -39,10 +39,11 @@ asm_switch_to_user_mode:
 	 * iretq pops in this order: RIP, CS, RFLAGS, RSP, SS.
 	 * Push in reverse order so the top of stack is RIP.
 	 *
-	 * RFLAGS value: 0x3202
+	 * RFLAGS value: 0x202
 	 *	 bit  1 (Reserved=1) : always 1
 	 *	 bit  9 (IF=1)		 : enable interrupts in user mode
-	 *	 bit 12-13 (IOPL=3)	 : I/O privilege level 3 (user can do port I/O)
+	 *	 bit 12-13 (IOPL=0)	 : ring 3 must NOT have port I/O access
+	 *			 : (nothing in user space needs it; drivers use MMIO)
 	 */
 
 	/* 5. SS */
@@ -51,8 +52,8 @@ asm_switch_to_user_mode:
 	/* 4. RSP */
 	pushq	%rsi
 
-	/* 3. RFLAGS: IF=1, IOPL=3, Reserved=1 */
-	pushq	$0x3202
+	/* 3. RFLAGS: IF=1, IOPL=0, Reserved=1 */
+	pushq	$0x202
 
 	/* 2. CS */
 	pushq	$0x23

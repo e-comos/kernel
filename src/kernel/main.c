@@ -57,6 +57,9 @@ void kernel_main(void* boot_info) {
 	irq_remap();
 	irq_init_timer();
 
+	/* Let IRQ1 reach user space; the keyboard driver waits on it. */
+	irq_unmask(1);
+
 	/* Phase 5: IPC + syscall IRQ subsystem */
 	print_str("IPC + syscall...\n", 0x1F);
 	enable_sse();

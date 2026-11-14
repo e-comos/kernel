@@ -88,6 +88,8 @@ typedef struct {
 	uint64_t ebts_size;
 	uint64_t driver_src;
 	uint64_t driver_size;
+	uint64_t kbd_src; /* PS/2 keyboard driver module (cmdline "kbd") */
+	uint64_t kbd_size;
 	uint32_t flags;
 	uint32_t _pad;
 } boot_info_t;

@@ -106,8 +106,11 @@ do_kernel_irq:
 	movw %ax, %fs
 	movw %ax, %gs
 
-	# Pass pointer to registers_t struct (%rsp) as first argument (%rdi)
-	movq %rsp, %rdi
+	# irq_handler_asm_shim(vec) takes the VECTOR NUMBER, not a frame pointer.
+	# int_no sits 15 saved registers (120 = 0x78) above %rsp.  Passing %rsp
+	# made the shim compute (pointer - 32), which never matched a real IRQ, so
+	# no IRQ handler was ever invoked (including the timer).
+	movq 0x78(%rsp), %rdi
 	call irq_handler_asm_shim
 
 	movq %r12, %rsp			# Restore stack pointer
@@ -133,8 +136,11 @@ do_user_irq:
 	movw %ax, %fs
 	movw %ax, %gs
 
-	# Pass pointer to registers_t struct (%rsp) as first argument (%rdi)
-	movq %rsp, %rdi
+	# irq_handler_asm_shim(vec) takes the VECTOR NUMBER, not a frame pointer.
+	# int_no sits 15 saved registers (120 = 0x78) above %rsp.  Passing %rsp
+	# made the shim compute (pointer - 32), which never matched a real IRQ, so
+	# no IRQ handler was ever invoked (including the timer).
+	movq 0x78(%rsp), %rdi
 	call irq_handler_asm_shim
 
 	movq %r12, %rsp			# Restore stack pointer

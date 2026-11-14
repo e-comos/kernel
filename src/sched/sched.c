@@ -17,6 +17,7 @@
  */
 #include <kernel/internal/types.h>
 #include <kernel/mm.h>
+#include <kernel/debug.h>
 #include <kernel/percpu.h>
 #include <kernel/printkit/print.h>
 #include <kernel/sched.h>
@@ -138,11 +139,41 @@ int sched_create_user_thread(uintptr_t entry_point, uintptr_t user_rsp) {
 	return create_thread_context(user_thread_start, 2, entry_point, user_rsp);
 }
 
+/* ------------------------------------------------------------------ */
+/* sched_kill_current - terminate the calling thread
+ *
+ * Marks the current thread TERMINATED and switches away.  If no other
+ * thread is runnable this returns to the caller, which is expected to
+ * panic: there is nothing left to schedule.
+ * ------------------------------------------------------------------ */
+void sched_kill_current(void) {
+	Thread* cur = sched_get_current_thread();
+	if (cur) {
+		cur->state = THREAD_TERMINATED;
+		cur->block_reason = BLOCK_REASON_NONE;
+	}
+	sched_schedule();
+	/* Nothing else to run -- caller decides. */
+}
+
+/* Called when an IPC queue gains a free slot. */
+void sched_wake_blocked_senders(void) {
+	for (int i = 0; i < MAX_THREADS; i++) {
+		if (threads[i].state == THREAD_BLOCKED &&
+			threads[i].block_reason == BLOCK_REASON_IPC_SEND) {
+			threads[i].state = THREAD_READY;
+			threads[i].block_reason = BLOCK_REASON_NONE;
+		}
+	}
+}
+
 void sched_yield(void) {
 	if (!scheduler_initialized)
 		return;
 	sched_schedule();
 }
+
+
 
 void sched_schedule(void) {
 	if (!scheduler_initialized)
@@ -159,8 +190,19 @@ void sched_schedule(void) {
 		next = (next + 1) % MAX_THREADS;
 	}
 
-	if (found == current_thread)
+	if (found == current_thread) {
+		/* Nothing else is runnable.  If the caller has blocked itself we
+		 * must really idle here: returning would leave a "blocked" thread
+		 * spinning in the kernel and no one else would ever run.  A
+		 * "blocked + spinning" thread was exactly what kept the keyboard
+		 * driver from being woken by IRQ1. */
+		if (threads[current_thread].state != THREAD_RUNNING) {
+			while (threads[current_thread].state != THREAD_READY)
+				__asm__ volatile("sti; hlt");
+			threads[current_thread].state = THREAD_RUNNING;
+		}
 		return;
+	}
 
 	uint32_t prev = current_thread;
 	current_thread = found;

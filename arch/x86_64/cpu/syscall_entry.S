@@ -42,11 +42,14 @@ syscall_entry:
 	swapgs
 
 	/* 2. Switch from User Stack to Kernel Stack cleanly 
-	   (%gs:0x0 holds kernel stack, %gs:0x8 stores saved user RSP) 
-	   NEVER push onto user stack before this switch! */
-	mov %rsp, %gs:0x8
-		 movq $1, %gs:0x10
-	mov %gs:0x0, %rsp
+	   (bsp_percpu.kernel_rsp holds the kernel stack, .user_rsp the saved
+	   user RSP).  These are reached RIP-relative on purpose: %gs is
+	   CPU-wide state that switch_to_user_mode zeroes whenever any thread
+	   enters user mode, and a thread resuming from a blocked syscall would
+	   then read address 0 (the real-mode IVT) as its stack pointer. */
+	mov %rsp, bsp_percpu+8(%rip)
+		 movq $1, bsp_percpu+16(%rip)
+	mov bsp_percpu(%rip), %rsp
 
 	/* FIXME: Because the system reached the #GP but we cannot
 	 * found out who changed MSR, GS base, RSP or other fuck
@@ -65,7 +68,13 @@ syscall_entry:
 	/* 4. Force restore IA32_KERNEL_GS_BASE to &bsp_percpu */
 	lea bsp_percpu(%rip), %rax	 /* get address of bsp_percpu */
 	mov $0xC0000102, %ecx		 /* IA32_KERNEL_GS_BASE MSR */
-	xor %edx, %edx
+	/* WRMSR takes the value in EDX:EAX.  The high half must carry the
+	 * upper 32 bits of the address: bsp_percpu lives at 0xffff8000_xxxxxxxx,
+	 * and zeroing EDX truncated it to 0x00000000_00115840, which made every
+	 * %gs access read low memory.  The syscall path no longer uses %gs, but
+	 * user mode still relies on the MSR holding a valid kernel base. */
+	movq %rax, %rdx
+	shrq $32, %rdx
 	wrmsr
 
 	/* 5. Restore RAX and RCX */
@@ -127,8 +136,8 @@ syscall_entry:
 	add $8, %rsp
 
 	/* 12. Restore User Stack Pointer */
-	movq $0, %gs:0x10
-	mov %gs:0x8, %rsp
+	movq $0, bsp_percpu+16(%rip)
+	mov bsp_percpu+8(%rip), %rsp
 
 	/* 13. Swap GS back to User GS Base */
 	swapgs

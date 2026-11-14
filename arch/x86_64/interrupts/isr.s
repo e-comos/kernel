@@ -243,8 +243,10 @@ syscall_stub:
 	/* Write return value back into saved rax so caller sees it */
 	movq %rax, 112(%rsp)
 
-	/* Set IOPL=3 in saved RFLAGS (at RSP+152 after SAVE_REGS+int_no+err_code) */
-	orq	 $0x3000, 152(%rsp)
+	/* Force IOPL=0 on the way back to ring 3 (saved RFLAGS lives at
+	 * RSP+152 after SAVE_REGS+int_no+err_code). User space must not be
+	 * able to execute cli/sti/in/out directly. */
+	andq	 $~0x3000, 152(%rsp)
 
 	movw $0x1B, %ax
 	movw %ax, %ds

@@ -17,6 +17,7 @@
 */
 
 #include <kernel/time.h>
+#include <klibc/string.h>
 #include <stdint.h>
 
 #define PIC1_CMD 0x20
@@ -57,9 +58,23 @@ static void irq_ack(uint8_t irq) {
 
 static void (*irq_handlers[16])(void) = {0};
 
+/* Wakes any user-space thread blocked in SYS_IRQ_WAIT for this IRQ.
+ * Generic mechanism: the kernel does not know who waits or why. */
+extern void syscall_irq_notify(uint8_t irq_num);
+
 void irq_install_handler(uint8_t irq, void (*handler)(void)) {
 	if (irq < 16)
 		irq_handlers[irq] = handler;
+}
+
+/* Allow an IRQ through the PIC mask.  The mask inherited from the BIOS
+ * leaves almost everything blocked, including IRQ1. */
+void irq_unmask(uint8_t irq) {
+	if (irq >= 16)
+		return;
+	uint16_t port = (irq < 8) ? PIC1_DATA : PIC2_DATA;
+	uint8_t bit = (uint8_t)(1u << (irq & 7u));
+	outb(port, (uint8_t)(inb(port) & ~bit));
 }
 
 void irq_uninstall_handler(uint8_t irq) {
@@ -71,10 +86,17 @@ static void timer_handler(void) {
 	time_tick();
 }
 
+
+
 void irq_handler_asm_shim(uint64_t vec) {
 	uint8_t irq = (uint8_t)(vec - 32);
 	if (irq < 16 && irq_handlers[irq])
 		irq_handlers[irq]();
+
+	/* Wake a user-space driver blocked in SYS_IRQ_WAIT(irq).  Without this
+	 * SYS_IRQ_WAIT could never return: nothing else calls it. */
+	syscall_irq_notify(irq);
+
 	irq_ack(irq);
 }
 

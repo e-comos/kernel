@@ -21,12 +21,29 @@
 #include <kernel/sched.h>
 #include <klibc/string.h>
 
+/* Wake every thread parked in the ipc_send() backpressure loop.  With only a
+ * handful of threads a scan is cheaper than per-queue wait lists. */
+extern void sched_wake_blocked_senders(void);
+
 int ipc_send(thread_id target, ipc_message_t* msg) {
 	if (!msg)
 		return -1;
 	Thread* t = sched_get_thread_by_pid(target);
 	if (!t)
 		return -1;
+	/* Backpressure: block instead of dropping.  A full queue used to make
+	 * ipc_send() fail silently, which lost console output and IPC replies
+	 * whenever a process produced a short burst of messages. */
+	while (t->ipc_count >= IPC_MAX_QUEUE_SIZE) {
+		Thread* self = sched_get_current_thread();
+		if (!self)
+			return -1;
+		self->state = THREAD_BLOCKED;
+		self->block_reason = BLOCK_REASON_IPC_SEND;
+		sched_yield();
+	}
+
+	/* A wakeup may have been a clock tick rather than a free slot. */
 	if (t->ipc_count >= IPC_MAX_QUEUE_SIZE)
 		return -1;
 
@@ -73,6 +90,9 @@ int ipc_receive(ipc_message_t* msg) {
 
 	cur->ipc_head = (cur->ipc_head + 1) % IPC_MAX_QUEUE_SIZE;
 	cur->ipc_count--;
+
+	/* Wake senders that were parked because this queue was full. */
+	sched_wake_blocked_senders();
 	return 0;
 }
 

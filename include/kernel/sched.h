@@ -21,6 +21,7 @@
 /* The fuck macros must add because the fuck thread always blocked */
 #define BLOCK_REASON_NONE 0
 #define BLOCK_REASON_IPC_WAIT 1
+#define BLOCK_REASON_IPC_SEND 2
 
 typedef enum {
 	THREAD_READY,
@@ -54,6 +55,8 @@ typedef struct thread {
 void sched_init(void);
 int sched_create_thread(void (*entry_point)(void));
 int sched_create_user_thread(uintptr_t entry_point, uintptr_t user_rsp);
+void sched_kill_current(void);
+void sched_wake_blocked_senders(void);
 void sched_yield(void);
 void sched_schedule(void);
 Thread* sched_get_thread_by_pid(uint32_t pid);

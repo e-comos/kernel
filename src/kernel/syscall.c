@@ -16,8 +16,10 @@
 	along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+#include <kernel/debug.h>
 #include <kernel/ipc.h>
 #include <kernel/mm.h>
+#include <kernel/percpu.h>
 #include <kernel/sched.h>
 #include <kernel/syscall.h>
 #include <kernel/time.h>
@@ -120,6 +122,7 @@ void syscall_irq_notify(uint8_t irq_num) {
 		return;
 	irq_occurred[irq_num] = 1;
 	irq_occurrence_count[irq_num]++;
+
 	for (uint32_t i = 0; i < num_waiters; i++) {
 		if (!irq_waiters[i].is_active)
 			continue;
@@ -154,6 +157,8 @@ void syscall_irq_check_timeouts(void) {
 		}
 	}
 }
+
+
 
 static long irq_wait_syscall(uint8_t irq_num, uint8_t flags,
 					uint32_t timeout_ms) {
@@ -195,6 +200,8 @@ static long irq_wait_syscall(uint8_t irq_num, uint8_t flags,
 	}
 	return 0;
 }
+
+
 
 long syscall_handler(uint32_t num, uint32_t arg1, uint32_t arg2,
 					 uint32_t arg3) {

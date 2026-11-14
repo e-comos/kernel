@@ -16,6 +16,7 @@
 */
 
 #include "../internal/gdt.h" /* Use the user's unmodified header */
+#include <stddef.h>
 #include <stdint.h>
 
 #define GDT_USER_DATA_INDEX 3
@@ -58,6 +59,10 @@ typedef struct {
 	uint64_t reserved2;
 	uint16_t reserved3;
 	uint16_t iomap_base; /* offset to I/O permission bitmap				*/
+	/* I/O permission bitmap: 32 bytes cover ports 0..255, plus the 0xFF
+	 * terminator byte required when the bitmap ends before the TSS limit.
+	 * Bit set = access denied; bit clear = access allowed. */
+	uint8_t iomap[129];
 } __attribute__((packed)) Tss64;
 
 /* ------------------------------------------------------------------ */
@@ -128,7 +133,25 @@ void gdt_init(void) {
 	tss.rsp0 = (uint64_t)(uintptr_t)(kernel_stack + sizeof(kernel_stack));
 	tss.ist[0] =
 		(uint64_t)(uintptr_t)(interrupt_stack + sizeof(interrupt_stack));
-	tss.iomap_base = (uint16_t)sizeof(Tss64);
+	/* I/O port capabilities.  Everything is denied by default; only the
+	 * PS/2 controller and VGA CRTC ports are handed to user space so the
+	 * drivers under driver/ can talk to the hardware from ring 3 while the
+	 * rest of the kernel keeps IOPL=0 and no port access.
+	 *
+	 * This is a capability grant, not keyboard policy: the kernel knows
+	 * nothing about scancodes.
+	 */
+	for (uint32_t i = 0; i < sizeof(tss.iomap); i++)
+		tss.iomap[i] = 0xFFu;
+
+	tss.iomap[0x60u / 8u] &= (uint8_t)~(1u << (0x60u % 8u)); /* kbd data   */
+	tss.iomap[0x64u / 8u] &= (uint8_t)~(1u << (0x64u % 8u)); /* kbd status */
+	/* VGA CRTC index/data: the display driver moves the hardware cursor. */
+	tss.iomap[0x3D4u / 8u] &= (uint8_t)~(1u << (0x3D4u % 8u));
+	tss.iomap[0x3D5u / 8u] &= (uint8_t)~(1u << (0x3D5u % 8u));
+	tss.iomap[sizeof(tss.iomap) - 1] = 0xFFu;				 /* terminator */
+
+	tss.iomap_base = (uint16_t)offsetof(Tss64, iomap);
 
 	/* Load the GDTR base pointing to our clean, static global array */
 	gdtp.limit = (uint16_t)(sizeof(gdt) - 1u);

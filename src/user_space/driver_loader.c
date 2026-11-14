@@ -29,6 +29,28 @@ extern uint32_t multiboot2_info_phys;
 uint64_t driver_phys_addr = 0;
 uint64_t driver_size = 0;
 
+/* Second module: the PS/2 keyboard driver.  It is a separate binary so the
+ * keyboard can be built and replaced independently of the display driver. */
+uint64_t kbd_phys_addr = 0;
+uint64_t kbd_size = 0;
+
+/* Does the module's command line name this role?  GRUB passes the word after
+ * the path verbatim, e.g. "module2 /boot/kbd.bin kbd" -> "kbd". */
+static int mod_is(const struct multiboot_tag_module* mod, const char* name) {
+	const char* p = mod->cmdline;
+
+	/* Skip leading blanks. */
+	while (*p == ' ' || *p == '	')
+		p++;
+
+	while (*name && *p == *name) {
+		p++;
+		name++;
+	}
+	/* Must match the whole word. */
+	return *name == '\0' && (*p == '\0' || *p == ' ' || *p == '\t');
+}
+
 /*
  * load_driver_from_multiboot - Scan Multiboot2 tags for a driver module.
  *
@@ -81,30 +103,38 @@ int load_driver_from_multiboot(void* mb_info_addr) {
 			uint32_t pend = mod->mod_end;
 			uint32_t size = pend - pstart;
 
-			if (size == 0 || size > 0x100000) {
-				print_str("Error: Invalid driver module size\n", 0x0F);
-				return -1;
+			if (size != 0 && size <= 0x100000) {
+				if (mod_is(mod, "kbd")) {
+					kbd_phys_addr = (uint64_t)pstart;
+					kbd_size = (uint64_t)size;
+				} else if (mod_is(mod, "vga")) {
+					driver_phys_addr = (uint64_t)pstart;
+					driver_size = (uint64_t)size;
+				} else if (driver_phys_addr == 0) {
+					/* No command line: first module is the display
+					 * driver, as before. */
+					driver_phys_addr = (uint64_t)pstart;
+					driver_size = (uint64_t)size;
+				} else if (kbd_phys_addr == 0) {
+					kbd_phys_addr = (uint64_t)pstart;
+					kbd_size = (uint64_t)size;
+				}
 			}
-
-			print_str("Found driver module. Physical: 0x", 0x0F);
-			print_hex(pstart, 0x0F);
-			print_str(" Size: ", 0x0F);
-			print_num(size, 0x0F);
-			print_str(" bytes\n", 0x0F);
-
-			/* Store in global variables for later use */
-			driver_phys_addr = (uint64_t)pstart;
-			driver_size = (uint64_t)size;
-
-			return 0;
 		}
 
 		/* Advance to the next tag (8‑byte aligned) */
 		tag = (struct multiboot_tag*)((uint8_t*)tag + ((tag->size + 7) & ~7));
 	}
 
-	print_str("Warning: No driver module found in Multiboot2 tags\n", 0x0F);
-	driver_phys_addr = 0;
-	driver_size = 0;
-	return -1;
+	print_str("Modules: vga=", 0x0F);
+	print_hex((uint32_t)driver_size, 0x0F);
+	print_str(" bytes, kbd=", 0x0F);
+	print_hex((uint32_t)kbd_size, 0x0F);
+	print_str(" bytes\n", 0x0F);
+
+	if (driver_phys_addr == 0) {
+		print_str("Warning: No display driver module found\n", 0x0F);
+		return -1;
+	}
+	return 0;
 }

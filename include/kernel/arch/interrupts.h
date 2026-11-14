@@ -26,6 +26,7 @@ void idt_set_gate(uint8_t num, uint64_t base, uint16_t sel, uint8_t flags);
 void irq_remap(void);
 void irq_init_timer(void);
 void irq_install_handler(uint8_t irq, void (*handler)(void));
+void irq_unmask(uint8_t irq);
 void irq_uninstall_handler(uint8_t irq);
 void irq_handler_asm_shim(uint64_t vec);
 void isr_handler(uint64_t int_no, uint64_t err_code);

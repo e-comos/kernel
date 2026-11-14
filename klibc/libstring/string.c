@@ -367,12 +367,36 @@ static void format_putc(char* buf, int* pos, int max_len, char c) {
 	}
 }
 
-int sprintf(char* buf, const char* format, ...) {
-	int pos = 0;
-	int max_len = 1024; /* Simple limit */
+/* ------------------------------------------------------------------
+ * Shared formatting core used by sprintf() and snprintf().
+ *
+ * Supported conversions:
+ *	 %d %i %u %x %X %p %s %c %%
+ * Supported length modifiers:
+ *	 l  ll  z
+ * Supported flags / width:
+ *	 '-'  left align
+ *	 '0'  zero pad (numeric conversions only; applied after the sign/0x)
+ *	 any decimal field width, e.g. %016llX
+ * ------------------------------------------------------------------ */
+static int fmt_ull(char* out, unsigned long long v, unsigned int base, int upper) {
+	const char* digits = upper ? "0123456789ABCDEF" : "0123456789abcdef";
+	char rev[24];
+	int n = 0;
+	int i;
 
-	va_list args;
-	va_start(args, format);
+	do {
+		rev[n++] = digits[v % base];
+		v /= base;
+	} while (v);
+
+	for (i = 0; i < n; i++)
+		out[i] = rev[n - 1 - i];
+	return n;
+}
+
+static int format_core(char* buf, int max_len, const char* format, va_list args) {
+	int pos = 0;
 
 	while (*format && pos < max_len - 1) {
 		if (*format != '%') {
@@ -381,184 +405,220 @@ int sprintf(char* buf, const char* format, ...) {
 			continue;
 		}
 
-		format++; /* Skip '%' */
+		format++; /* skip '%' */
 
-		switch (*format) {
-		case 'd': {
-			int val = va_arg(args, int);
-			char temp[16];
-			int i = 0;
-			int is_negative = 0;
-
-			if (val < 0) {
-				is_negative = 1;
-				val = -val;
+		/* flags */
+		int left_align = 0;
+		int zero_pad = 0;
+		for (;;) {
+			if (*format == '-') {
+				left_align = 1;
+				format++;
+			} else if (*format == '0') {
+				zero_pad = 1;
+				format++;
+			} else if (*format == ' ' || *format == '+' || *format == '#') {
+				format++;
+			} else {
+				break;
 			}
+		}
 
-			/* Convert to string */
-			do {
-				temp[i++] = '0' + (val % 10);
-				val /= 10;
-			} while (val > 0);
+		/* field width */
+		int width = 0;
+		while (*format >= '0' && *format <= '9')
+			width = width * 10 + (*format++ - '0');
 
-			if (is_negative) {
-				temp[i++] = '-';
+		/* length modifier */
+		int len_mod = 0; /* 0 = int, 1 = long, 2 = long long, 3 = size_t */
+		if (*format == 'l') {
+			format++;
+			if (*format == 'l') {
+				format++;
+				len_mod = 2;
+			} else {
+				len_mod = 1;
 			}
+		} else if (*format == 'z') {
+			format++;
+			len_mod = 3;
+		} else if (*format == 'h') {
+			format++;
+			if (*format == 'h')
+				format++;
+		}
 
-			/* Reverse and copy */
-			for (int j = i - 1; j >= 0; j--) {
-				format_putc(buf, &pos, max_len, temp[j]);
+		char conv = *format;
+		if (!conv)
+			break;
+		format++;
+
+		if (conv == '%') {
+			format_putc(buf, &pos, max_len, '%');
+			continue;
+		}
+
+		/* Strings are written straight out so they are never truncated
+		 * by the fixed-size body buffer below. */
+		if (conv == 's') {
+			const char* s = va_arg(args, const char*);
+			int slen = 0;
+			int pad;
+
+			if (!s)
+				s = "(null)";
+			while (s[slen])
+				slen++;
+			pad = (width > slen) ? width - slen : 0;
+
+			if (!left_align)
+				for (int i = 0; i < pad; i++)
+					format_putc(buf, &pos, max_len, ' ');
+			while (*s)
+				format_putc(buf, &pos, max_len, *s++);
+			if (left_align)
+				for (int i = 0; i < pad; i++)
+					format_putc(buf, &pos, max_len, ' ');
+			continue;
+		}
+
+		char body[64];
+		char prefix[4];
+		int plen = 0;
+		int blen = 0;
+		int numeric = 1;
+
+		switch (conv) {
+		case 'd':
+		case 'i': {
+			long long v;
+			unsigned long long uv;
+
+			if (len_mod == 2)
+				v = va_arg(args, long long);
+			else if (len_mod == 1)
+				v = va_arg(args, long);
+			else
+				v = va_arg(args, int);
+
+			if (v < 0) {
+				prefix[plen++] = '-';
+				uv = (unsigned long long)(-(v + 1)) + 1ULL;
+			} else {
+				uv = (unsigned long long)v;
 			}
+			blen = fmt_ull(body, uv, 10, 0);
 			break;
 		}
 
-		case 's': {
-			char* str = va_arg(args, char*);
-			while (*str) {
-				format_putc(buf, &pos, max_len, *str);
-				str++;
-			}
+		case 'u': {
+			unsigned long long uv;
+
+			if (len_mod == 2)
+				uv = va_arg(args, unsigned long long);
+			else if (len_mod == 1)
+				uv = va_arg(args, unsigned long);
+			else if (len_mod == 3)
+				uv = (unsigned long long)va_arg(args, size_t);
+			else
+				uv = va_arg(args, unsigned int);
+
+			blen = fmt_ull(body, uv, 10, 0);
+			break;
+		}
+
+		case 'x':
+		case 'X': {
+			unsigned long long uv;
+
+			if (len_mod == 2)
+				uv = va_arg(args, unsigned long long);
+			else if (len_mod == 1)
+				uv = va_arg(args, unsigned long);
+			else if (len_mod == 3)
+				uv = (unsigned long long)va_arg(args, size_t);
+			else
+				uv = va_arg(args, unsigned int);
+
+			blen = fmt_ull(body, uv, 16, conv == 'X');
+			break;
+		}
+
+		case 'p': {
+			unsigned long long uv =
+				(unsigned long long)(uintptr_t)va_arg(args, void*);
+			prefix[plen++] = '0';
+			prefix[plen++] = 'x';
+			blen = fmt_ull(body, uv, 16, 0);
 			break;
 		}
 
 		case 'c': {
-			char c = (char)va_arg(args, int);
-			format_putc(buf, &pos, max_len, c);
-			break;
-		}
-
-		case 'x': {
-			unsigned int val = va_arg(args, unsigned int);
-			char hex[] = "0123456789abcdef";
-			char temp[9];
-			int i = 0;
-
-			do {
-				temp[i++] = hex[val & 0xF];
-				val >>= 4;
-			} while (val > 0);
-
-			/* Pad to 8 digits */
-			while (i < 8) {
-				temp[i++] = '0';
-			}
-
-			/* Reverse and copy */
-			for (int j = i - 1; j >= 0; j--) {
-				format_putc(buf, &pos, max_len, temp[j]);
-			}
+			numeric = 0;
+			body[blen++] = (char)va_arg(args, int);
 			break;
 		}
 
 		default:
-			format_putc(buf, &pos, max_len, '%');
-			format_putc(buf, &pos, max_len, *format);
+			numeric = 0;
+			prefix[plen++] = '%';
+			body[blen++] = conv;
 			break;
 		}
 
-		format++;
-	}
+		int total = plen + blen;
+		int pad = (width > total) ? width - total : 0;
+		int i;
 
-	buf[pos] = '\0';
-	va_end(args);
+		if (left_align || !zero_pad || !numeric) {
+			/* space padding (left aligned pads on the right) */
+			if (!left_align)
+				for (i = 0; i < pad; i++)
+					format_putc(buf, &pos, max_len, ' ');
+			for (i = 0; i < plen; i++)
+				format_putc(buf, &pos, max_len, prefix[i]);
+			for (i = 0; i < blen; i++)
+				format_putc(buf, &pos, max_len, body[i]);
+			if (left_align)
+				for (i = 0; i < pad; i++)
+					format_putc(buf, &pos, max_len, ' ');
+		} else {
+			/* zero padding goes after the sign / 0x prefix */
+			for (i = 0; i < plen; i++)
+				format_putc(buf, &pos, max_len, prefix[i]);
+			for (i = 0; i < pad; i++)
+				format_putc(buf, &pos, max_len, '0');
+			for (i = 0; i < blen; i++)
+				format_putc(buf, &pos, max_len, body[i]);
+		}
+	}
 
 	return pos;
 }
 
-int snprintf(char* buf, size_t size, const char* format, ...) {
-	int pos = 0;
-
+int sprintf(char* buf, const char* format, ...) {
 	va_list args;
+	int pos;
+
 	va_start(args, format);
-
-	while (*format && pos < (int)size - 1) {
-		if (*format != '%') {
-			format_putc(buf, &pos, (int)size, *format);
-			format++;
-			continue;
-		}
-
-		format++; /* Skip '%' */
-
-		switch (*format) {
-		case 'd': {
-			int val = va_arg(args, int);
-			char temp[16];
-			int i = 0;
-			int is_negative = 0;
-
-			if (val < 0) {
-				is_negative = 1;
-				val = -val;
-			}
-
-			/* Convert to string */
-			do {
-				temp[i++] = '0' + (val % 10);
-				val /= 10;
-			} while (val > 0);
-
-			if (is_negative) {
-				temp[i++] = '-';
-			}
-
-			/* Reverse and copy */
-			for (int j = i - 1; j >= 0; j--) {
-				format_putc(buf, &pos, (int)size, temp[j]);
-			}
-			break;
-		}
-
-		case 's': {
-			char* str = va_arg(args, char*);
-			while (*str) {
-				format_putc(buf, &pos, (int)size, *str);
-				str++;
-			}
-			break;
-		}
-
-		case 'c': {
-			char c = (char)va_arg(args, int);
-			format_putc(buf, &pos, (int)size, c);
-			break;
-		}
-
-		case 'x': {
-			unsigned int val = va_arg(args, unsigned int);
-			char hex[] = "0123456789abcdef";
-			char temp[9];
-			int i = 0;
-
-			do {
-				temp[i++] = hex[val & 0xF];
-				val >>= 4;
-			} while (val > 0);
-
-			/* Pad to 8 digits */
-			while (i < 8) {
-				temp[i++] = '0';
-			}
-
-			/* Reverse and copy */
-			for (int j = i - 1; j >= 0; j--) {
-				format_putc(buf, &pos, (int)size, temp[j]);
-			}
-			break;
-		}
-
-		default:
-			format_putc(buf, &pos, (int)size, '%');
-			format_putc(buf, &pos, (int)size, *format);
-			break;
-		}
-
-		format++;
-	}
-
-	buf[pos] = '\0';
+	pos = format_core(buf, 1024, format, args);
 	va_end(args);
 
+	buf[pos] = '\0';
+	return pos;
+}
+
+int snprintf(char* buf, size_t size, const char* format, ...) {
+	va_list args;
+	int max_len = (int)size;
+	int pos;
+
+	va_start(args, format);
+	pos = format_core(buf, max_len, format, args);
+	va_end(args);
+
+	if (max_len > 0)
+		buf[pos < max_len ? pos : max_len - 1] = '\0';
 	return pos;
 }
 
